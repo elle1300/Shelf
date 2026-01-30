@@ -1,5 +1,5 @@
 -- ============================================
--- SHELF APP - DATABASE SETUP
+-- TROVE APP - DATABASE SETUP
 -- ============================================
 -- Copy this entire file and paste it into 
 -- Supabase SQL Editor, then click "Run"

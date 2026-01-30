@@ -1,4 +1,4 @@
-# Shelf App - Next.js Version
+# Trove App - Next.js Version
 # testing 
 
 Your digital library for organizing and sharing favorites.

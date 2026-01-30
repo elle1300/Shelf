@@ -91,7 +91,7 @@ function Modal({ isOpen, onClose, title, children, isDark }) {
 }
 
 // Main App Component
-export default function ShelfApp() {
+export default function TroveApp() {
   // Auth state
   const [user, setUser] = useState(null)
   const [profile, setProfile] = useState(null)
@@ -123,7 +123,7 @@ export default function ShelfApp() {
 
   // Initialize
   useEffect(() => {
-    const savedTheme = localStorage.getItem('shelf-theme')
+    const savedTheme = localStorage.getItem('trove-theme')
     if (savedTheme) {
       setIsDark(savedTheme === 'dark')
       document.documentElement.classList.toggle('light-mode', savedTheme === 'light')
@@ -335,7 +335,7 @@ export default function ShelfApp() {
   const toggleTheme = () => {
     const newTheme = !isDark
     setIsDark(newTheme)
-    localStorage.setItem('shelf-theme', newTheme ? 'dark' : 'light')
+    localStorage.setItem('trove-theme', newTheme ? 'dark' : 'light')
     document.documentElement.classList.toggle('light-mode', !newTheme)
   }
 
@@ -386,7 +386,7 @@ export default function ShelfApp() {
       <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: 'var(--bg-primary)' }}>
         <div className="flex items-center gap-3">
           <span className="w-3 h-3 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 animate-pulse" />
-          <span className="text-lg font-light" style={{ color: 'var(--text-muted)' }}>shelf</span>
+          <span className="text-lg font-light" style={{ color: 'var(--text-muted)' }}>trove</span>
         </div>
       </div>
     )
@@ -413,7 +413,7 @@ export default function ShelfApp() {
               {selectedAlbum ? selectedAlbum.name : (
                 <span className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 animate-pulse" />
-                  shelf
+                  trove
                 </span>
               )}
             </h1>
@@ -454,7 +454,7 @@ export default function ShelfApp() {
             <div className="w-16 h-16 mx-auto rounded-full bg-gradient-to-r from-amber-400 to-orange-500 flex items-center justify-center mb-6">
               <span className="text-2xl">📚</span>
             </div>
-            <h2 className="text-xl font-light mb-2">Welcome to Shelf</h2>
+            <h2 className="text-xl font-light mb-2">Welcome to Trove</h2>
             <p className="text-sm mb-6" style={textMuted}>Your digital library for organizing favorites</p>
             <button onClick={() => setShowAuthModal(true)} className="px-6 py-3 rounded-full font-medium" style={{ backgroundColor: isDark ? '#fff' : '#000', color: isDark ? '#000' : '#fff' }}>
               Get Started

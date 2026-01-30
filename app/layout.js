@@ -1,7 +1,7 @@
 import './globals.css'
 
 export const metadata = {
-  title: 'Shelf - Your Digital Library',
+  title: 'Trove - Your Digital Library',
   description: 'Organize and share your favorite things',
 }
 
