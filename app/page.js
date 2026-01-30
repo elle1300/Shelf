@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase'
 import { 
   Plus, Sparkles, ExternalLink, ArrowLeft, X, Music, BookOpen, Film, 
   Utensils, Dumbbell, Palette, Image, Upload, User, Globe, Lock, 
-  Heart, Search, Home, Compass, LogOut, Edit3, Check, Sun, Moon, Eye, EyeOff
+  Heart, Search, Home, Compass, LogOut, Edit3, Check, Sun, Moon, Eye, EyeOff, Mail
 } from 'lucide-react'
 
 // Icon options
@@ -98,7 +98,7 @@ export default function TroveApp() {
   const [loading, setLoading] = useState(true)
   
   // App state
-  const [activeTab, setActiveTab] = useState('home')
+  const [activeTab, setActiveTab] = useState('discover')
   const [albums, setAlbums] = useState([])
   const [publicAlbums, setPublicAlbums] = useState([])
   const [selectedAlbum, setSelectedAlbum] = useState(null)
@@ -112,6 +112,7 @@ export default function TroveApp() {
   const [showAddItemModal, setShowAddItemModal] = useState(false)
   const [showEditProfileModal, setShowEditProfileModal] = useState(false)
   const [isLogin, setIsLogin] = useState(true)
+  const [showEmailConfirmation, setShowEmailConfirmation] = useState(false)
   
   // Form state
   const [authForm, setAuthForm] = useState({ email: '', password: '', username: '', displayName: '' })
@@ -130,6 +131,7 @@ export default function TroveApp() {
     }
     
     checkUser()
+    fetchPublicAlbums()
     
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       setUser(session?.user ?? null)
@@ -137,17 +139,15 @@ export default function TroveApp() {
         await fetchProfile(session.user.id)
         await fetchMyAlbums(session.user.id)
         await fetchLikes(session.user.id)
+        setActiveTab('home')
       } else {
         setProfile(null)
         setAlbums([])
+        setActiveTab('discover')
       }
     })
 
     return () => subscription.unsubscribe()
-  }, [])
-
-  useEffect(() => {
-    fetchPublicAlbums()
   }, [])
 
   const checkUser = async () => {
@@ -157,6 +157,7 @@ export default function TroveApp() {
       await fetchProfile(session.user.id)
       await fetchMyAlbums(session.user.id)
       await fetchLikes(session.user.id)
+      setActiveTab('home')
     }
     setLoading(false)
   }
@@ -216,6 +217,7 @@ export default function TroveApp() {
         })
         if (error) throw error
         setShowAuthModal(false)
+        setShowEmailConfirmation(false)
       } else {
         const { error } = await supabase.auth.signUp({
           email: authForm.email,
@@ -228,7 +230,8 @@ export default function TroveApp() {
           }
         })
         if (error) throw error
-        setShowAuthModal(false)
+        // Show email confirmation message
+        setShowEmailConfirmation(true)
       }
       setAuthForm({ email: '', password: '', username: '', displayName: '' })
     } catch (err) {
@@ -239,7 +242,7 @@ export default function TroveApp() {
 
   const handleSignOut = async () => {
     await supabase.auth.signOut()
-    setActiveTab('home')
+    setActiveTab('discover')
   }
 
   // Album handlers
@@ -306,7 +309,10 @@ export default function TroveApp() {
   }
 
   const handleLike = async (albumId) => {
-    if (!user) return
+    if (!user) {
+      setShowAuthModal(true)
+      return
+    }
     if (likedAlbums.includes(albumId)) {
       await supabase.from('likes').delete().eq('user_id', user.id).eq('album_id', albumId)
       setLikedAlbums(likedAlbums.filter(id => id !== albumId))
@@ -385,7 +391,7 @@ export default function TroveApp() {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: 'var(--bg-primary)' }}>
         <div className="flex items-center gap-3">
-          <span className="w-3 h-3 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 animate-pulse" />
+          <span className="w-3 h-3 rounded-full bg-gradient-to-r from-emerald-400 to-cyan-500 animate-pulse" />
           <span className="text-lg font-light" style={{ color: 'var(--text-muted)' }}>trove</span>
         </div>
       </div>
@@ -412,17 +418,25 @@ export default function TroveApp() {
             <h1 className="text-lg font-light">
               {selectedAlbum ? selectedAlbum.name : (
                 <span className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 animate-pulse" />
+                  <span className="w-2 h-2 rounded-full bg-gradient-to-r from-emerald-400 to-cyan-500 animate-pulse" />
                   trove
                 </span>
               )}
             </h1>
           </div>
           
+          {/* Header right side */}
           {!selectedAlbum && activeTab === 'home' && user && (
             <button onClick={() => setShowCreateModal(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-full border transition-all" style={{ ...bgSecondary, ...borderStyle }}>
               <Plus className="w-3.5 h-3.5" />
               <span className="text-xs">New</span>
+            </button>
+          )}
+          
+          {/* Sign in button for non-logged in users */}
+          {!selectedAlbum && !user && (
+            <button onClick={() => setShowAuthModal(true)} className="flex items-center gap-1.5 px-4 py-2 rounded-full font-medium text-sm" style={{ backgroundColor: isDark ? '#fff' : '#000', color: isDark ? '#000' : '#fff' }}>
+              Sign In
             </button>
           )}
           
@@ -438,7 +452,7 @@ export default function TroveApp() {
             </div>
           )}
           
-          {selectedAlbum && selectedAlbum.user_id !== user?.id && user && (
+          {selectedAlbum && selectedAlbum.user_id !== user?.id && (
             <button onClick={() => handleLike(selectedAlbum.id)} className={`flex items-center gap-1.5 px-3 py-2 rounded-full border ${likedAlbums.includes(selectedAlbum.id) ? 'bg-red-500/10 border-red-500/30' : ''}`} style={!likedAlbums.includes(selectedAlbum.id) ? { ...bgSecondary, ...borderStyle } : {}}>
               <Heart className={`w-3.5 h-3.5 ${likedAlbums.includes(selectedAlbum.id) ? 'fill-red-500 text-red-500' : ''}`} />
             </button>
@@ -448,43 +462,22 @@ export default function TroveApp() {
 
       {/* Main Content */}
       <main className="max-w-lg mx-auto px-4 py-6 pb-24">
-        {/* Not logged in */}
-        {!user && !selectedAlbum && (
-          <div className="text-center py-20">
-            <div className="w-16 h-16 mx-auto rounded-full bg-gradient-to-r from-amber-400 to-orange-500 flex items-center justify-center mb-6">
-              <span className="text-2xl">📚</span>
-            </div>
-            <h2 className="text-xl font-light mb-2">Welcome to Trove</h2>
-            <p className="text-sm mb-6" style={textMuted}>Your digital library for organizing favorites</p>
-            <button onClick={() => setShowAuthModal(true)} className="px-6 py-3 rounded-full font-medium" style={{ backgroundColor: isDark ? '#fff' : '#000', color: isDark ? '#000' : '#fff' }}>
-              Get Started
-            </button>
-          </div>
-        )}
-
-        {/* Home Tab */}
-        {user && activeTab === 'home' && !selectedAlbum && (
-          albums.length === 0 ? (
-            <div className="text-center py-20">
-              <div className="w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-4" style={bgSecondary}>
-                <Plus className="w-6 h-6" style={textMuted} />
-              </div>
-              <p className="mb-4" style={textMuted}>Your library is empty</p>
-              <button onClick={() => setShowCreateModal(true)} className="text-sm text-violet-400">Create your first album</button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-3 gap-3">
-              {albums.map(album => <AlbumCard key={album.id} album={album} isOwn={true} />)}
-            </div>
-          )
-        )}
-
-        {/* Discover Tab */}
-        {user && activeTab === 'discover' && !selectedAlbum && (
+        
+        {/* Discover Tab - Available to everyone */}
+        {activeTab === 'discover' && !selectedAlbum && (
           <div className="space-y-6">
-            <h2 className="text-xs font-medium uppercase tracking-wider" style={textMuted}>Explore Albums</h2>
+            {!user && (
+              <div className="text-center py-8 mb-4">
+                <div className="w-16 h-16 mx-auto rounded-full bg-gradient-to-r from-emerald-400 to-cyan-500 flex items-center justify-center mb-4">
+                  <span className="text-2xl">💎</span>
+                </div>
+                <h2 className="text-xl font-light mb-2">Welcome to Trove</h2>
+                <p className="text-sm mb-4" style={textMuted}>Discover collections from the community</p>
+              </div>
+            )}
+            <h2 className="text-xs font-medium uppercase tracking-wider" style={textMuted}>Explore Collections</h2>
             {publicAlbums.length === 0 ? (
-              <p className="text-center py-12 text-sm" style={textMuted}>No public albums yet</p>
+              <p className="text-center py-12 text-sm" style={textMuted}>No public collections yet</p>
             ) : (
               <div className="grid grid-cols-3 gap-3">
                 {publicAlbums.filter(a => a.user_id !== user?.id).map(album => (
@@ -495,7 +488,24 @@ export default function TroveApp() {
           </div>
         )}
 
-        {/* Profile Tab */}
+        {/* Home Tab - Only for logged in users */}
+        {user && activeTab === 'home' && !selectedAlbum && (
+          albums.length === 0 ? (
+            <div className="text-center py-20">
+              <div className="w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-4" style={bgSecondary}>
+                <Plus className="w-6 h-6" style={textMuted} />
+              </div>
+              <p className="mb-4" style={textMuted}>Your trove is empty</p>
+              <button onClick={() => setShowCreateModal(true)} className="text-sm text-emerald-400">Create your first collection</button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-3">
+              {albums.map(album => <AlbumCard key={album.id} album={album} isOwn={true} />)}
+            </div>
+          )
+        )}
+
+        {/* Profile Tab - Only for logged in users */}
         {user && activeTab === 'profile' && !selectedAlbum && profile && (
           <div className="space-y-6">
             <div className="flex items-start justify-between">
@@ -515,15 +525,15 @@ export default function TroveApp() {
             <div className="p-4 rounded-xl border" style={{ ...bgSecondary, ...borderStyle }}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  {isDark ? <Moon className="w-5 h-5 text-violet-400" /> : <Sun className="w-5 h-5 text-amber-500" />}
+                  {isDark ? <Moon className="w-5 h-5 text-emerald-400" /> : <Sun className="w-5 h-5 text-amber-500" />}
                   <div>
                     <p className="text-sm font-medium">{isDark ? 'Dark Mode' : 'Light Mode'}</p>
                     <p className="text-xs" style={textMuted}>{isDark ? 'Easy on the eyes' : 'Bright and clean'}</p>
                   </div>
                 </div>
-                <button onClick={toggleTheme} className={`relative w-14 h-8 rounded-full transition-colors ${isDark ? 'bg-violet-600' : 'bg-amber-400'}`}>
+                <button onClick={toggleTheme} className={`relative w-14 h-8 rounded-full transition-colors ${isDark ? 'bg-emerald-600' : 'bg-amber-400'}`}>
                   <div className={`absolute top-1 w-6 h-6 rounded-full bg-white shadow-md transition-transform flex items-center justify-center ${isDark ? 'left-7' : 'left-1'}`}>
-                    {isDark ? <Moon className="w-3.5 h-3.5 text-violet-600" /> : <Sun className="w-3.5 h-3.5 text-amber-500" />}
+                    {isDark ? <Moon className="w-3.5 h-3.5 text-emerald-600" /> : <Sun className="w-3.5 h-3.5 text-amber-500" />}
                   </div>
                 </button>
               </div>
@@ -542,9 +552,9 @@ export default function TroveApp() {
               <div className="w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-4" style={bgSecondary}>
                 <Plus className="w-6 h-6" style={textMuted} />
               </div>
-              <p className="mb-4" style={textMuted}>This album is empty</p>
+              <p className="mb-4" style={textMuted}>This collection is empty</p>
               {selectedAlbum.user_id === user?.id && (
-                <button onClick={() => setShowAddItemModal(true)} className="text-sm text-violet-400">Add your first item</button>
+                <button onClick={() => setShowAddItemModal(true)} className="text-sm text-emerald-400">Add your first item</button>
               )}
             </div>
           ) : (
@@ -570,50 +580,89 @@ export default function TroveApp() {
       </main>
 
       {/* Bottom Navigation */}
-      {user && !selectedAlbum && (
+      {!selectedAlbum && (
         <nav className="fixed bottom-0 left-0 right-0 z-40 border-t backdrop-blur-xl" style={{ ...bgPrimary, ...borderStyle }}>
           <div className="max-w-lg mx-auto px-4">
             <div className="flex items-center justify-around py-3">
-              {[
-                { id: 'home', icon: Home, label: 'Home' },
-                { id: 'discover', icon: Compass, label: 'Discover' },
-                { id: 'profile', icon: User, label: 'Profile' },
-              ].map(tab => (
-                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center gap-1 px-6 py-1 rounded-lg transition-colors ${activeTab === tab.id ? '' : 'opacity-40'}`}>
-                  <tab.icon className="w-5 h-5" />
-                  <span className="text-[10px]">{tab.label}</span>
-                </button>
-              ))}
+              {user ? (
+                // Logged in navigation
+                [
+                  { id: 'home', icon: Home, label: 'Home' },
+                  { id: 'discover', icon: Compass, label: 'Discover' },
+                  { id: 'profile', icon: User, label: 'Profile' },
+                ].map(tab => (
+                  <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center gap-1 px-6 py-1 rounded-lg transition-colors ${activeTab === tab.id ? '' : 'opacity-40'}`}>
+                    <tab.icon className="w-5 h-5" />
+                    <span className="text-[10px]">{tab.label}</span>
+                  </button>
+                ))
+              ) : (
+                // Logged out navigation
+                <>
+                  <button onClick={() => setActiveTab('discover')} className="flex flex-col items-center gap-1 px-6 py-1 rounded-lg transition-colors">
+                    <Compass className="w-5 h-5" />
+                    <span className="text-[10px]">Discover</span>
+                  </button>
+                  <button onClick={() => setShowAuthModal(true)} className="flex flex-col items-center gap-1 px-6 py-1 rounded-lg transition-colors opacity-40">
+                    <User className="w-5 h-5" />
+                    <span className="text-[10px]">Sign In</span>
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </nav>
       )}
 
       {/* Auth Modal */}
-      <Modal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} title={isLogin ? 'Welcome back' : 'Create account'} isDark={isDark}>
-        <form onSubmit={handleAuth} className="space-y-4">
-          {!isLogin && (
-            <>
-              <input type="text" placeholder="Username" value={authForm.username} onChange={(e) => setAuthForm({ ...authForm, username: e.target.value.replace(/\s/g, '') })} required className="w-full px-3 py-2.5 rounded-lg border text-sm" style={{ ...bgSecondary, ...borderStyle, color: 'var(--text-primary)' }} />
-              <input type="text" placeholder="Display Name (optional)" value={authForm.displayName} onChange={(e) => setAuthForm({ ...authForm, displayName: e.target.value })} className="w-full px-3 py-2.5 rounded-lg border text-sm" style={{ ...bgSecondary, ...borderStyle, color: 'var(--text-primary)' }} />
-            </>
-          )}
-          <input type="email" placeholder="Email" value={authForm.email} onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })} required className="w-full px-3 py-2.5 rounded-lg border text-sm" style={{ ...bgSecondary, ...borderStyle, color: 'var(--text-primary)' }} />
-          <input type="password" placeholder="Password" value={authForm.password} onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })} required minLength={6} className="w-full px-3 py-2.5 rounded-lg border text-sm" style={{ ...bgSecondary, ...borderStyle, color: 'var(--text-primary)' }} />
-          {authError && <p className="text-red-400 text-sm">{authError}</p>}
-          <button type="submit" disabled={saving} className="w-full py-3 rounded-lg font-medium text-sm" style={{ backgroundColor: isDark ? '#fff' : '#000', color: isDark ? '#000' : '#fff' }}>
-            {saving ? 'Loading...' : (isLogin ? 'Sign In' : 'Create Account')}
-          </button>
-          <button type="button" onClick={() => { setIsLogin(!isLogin); setAuthError('') }} className="w-full text-sm" style={textMuted}>
-            {isLogin ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
-          </button>
-        </form>
+      <Modal isOpen={showAuthModal} onClose={() => { setShowAuthModal(false); setShowEmailConfirmation(false); setAuthError('') }} title={showEmailConfirmation ? 'Check your inbox' : (isLogin ? 'Welcome back' : 'Create account')} isDark={isDark}>
+        {showEmailConfirmation ? (
+          // Email confirmation message
+          <div className="text-center py-4">
+            <div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/20 flex items-center justify-center mb-4">
+              <Mail className="w-8 h-8 text-emerald-400" />
+            </div>
+            <h3 className="text-lg font-medium mb-2">Verify your email</h3>
+            <p className="text-sm mb-4" style={textMuted}>
+              We've sent a confirmation link to your email address. Please check your inbox and click the link to activate your account.
+            </p>
+            <p className="text-xs mb-6" style={textMuted}>
+              Don't see it? Check your spam folder.
+            </p>
+            <button 
+              onClick={() => { setShowEmailConfirmation(false); setIsLogin(true) }} 
+              className="w-full py-3 rounded-lg font-medium text-sm"
+              style={{ backgroundColor: isDark ? '#fff' : '#000', color: isDark ? '#000' : '#fff' }}
+            >
+              Back to Sign In
+            </button>
+          </div>
+        ) : (
+          // Regular auth form
+          <form onSubmit={handleAuth} className="space-y-4">
+            {!isLogin && (
+              <>
+                <input type="text" placeholder="Username" value={authForm.username} onChange={(e) => setAuthForm({ ...authForm, username: e.target.value.replace(/\s/g, '') })} required className="w-full px-3 py-2.5 rounded-lg border text-sm" style={{ ...bgSecondary, ...borderStyle, color: 'var(--text-primary)' }} />
+                <input type="text" placeholder="Display Name (optional)" value={authForm.displayName} onChange={(e) => setAuthForm({ ...authForm, displayName: e.target.value })} className="w-full px-3 py-2.5 rounded-lg border text-sm" style={{ ...bgSecondary, ...borderStyle, color: 'var(--text-primary)' }} />
+              </>
+            )}
+            <input type="email" placeholder="Email" value={authForm.email} onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })} required className="w-full px-3 py-2.5 rounded-lg border text-sm" style={{ ...bgSecondary, ...borderStyle, color: 'var(--text-primary)' }} />
+            <input type="password" placeholder="Password" value={authForm.password} onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })} required minLength={6} className="w-full px-3 py-2.5 rounded-lg border text-sm" style={{ ...bgSecondary, ...borderStyle, color: 'var(--text-primary)' }} />
+            {authError && <p className="text-red-400 text-sm">{authError}</p>}
+            <button type="submit" disabled={saving} className="w-full py-3 rounded-lg font-medium text-sm" style={{ backgroundColor: isDark ? '#fff' : '#000', color: isDark ? '#000' : '#fff' }}>
+              {saving ? 'Loading...' : (isLogin ? 'Sign In' : 'Create Account')}
+            </button>
+            <button type="button" onClick={() => { setIsLogin(!isLogin); setAuthError('') }} className="w-full text-sm" style={textMuted}>
+              {isLogin ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
+            </button>
+          </form>
+        )}
       </Modal>
 
       {/* Create Album Modal */}
-      <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="Create Album" isDark={isDark}>
+      <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="Create Collection" isDark={isDark}>
         <div className="space-y-5">
-          <input type="text" placeholder="Album name" value={newAlbum.name} onChange={(e) => setNewAlbum({ ...newAlbum, name: e.target.value })} className="w-full px-3 py-2.5 rounded-lg border text-sm" style={{ ...bgSecondary, ...borderStyle, color: 'var(--text-primary)' }} />
+          <input type="text" placeholder="Collection name" value={newAlbum.name} onChange={(e) => setNewAlbum({ ...newAlbum, name: e.target.value })} className="w-full px-3 py-2.5 rounded-lg border text-sm" style={{ ...bgSecondary, ...borderStyle, color: 'var(--text-primary)' }} />
           
           <div>
             <label className="block text-xs mb-2" style={textMuted}>Color</label>
@@ -645,7 +694,7 @@ export default function TroveApp() {
           </div>
           
           <button onClick={handleCreateAlbum} disabled={saving || !newAlbum.name.trim()} className="w-full py-3 rounded-lg font-medium text-sm disabled:opacity-50" style={{ backgroundColor: isDark ? '#fff' : '#000', color: isDark ? '#000' : '#fff' }}>
-            {saving ? 'Creating...' : 'Create Album'}
+            {saving ? 'Creating...' : 'Create Collection'}
           </button>
         </div>
       </Modal>
