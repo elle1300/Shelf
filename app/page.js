@@ -5,8 +5,54 @@ import { supabase } from '../lib/supabase'
 import { 
   Plus, Sparkles, ExternalLink, ArrowLeft, X, Music, BookOpen, Film, 
   Utensils, Dumbbell, Palette, Image, Upload, User, Globe, Lock, 
-  Heart, Search, Home, Compass, LogOut, Edit3, Check, Sun, Moon, Eye, EyeOff, Mail
+  Heart, Search, Home, Compass, LogOut, Edit3, Check, Sun, Moon, Eye, EyeOff, Mail, Camera
 } from 'lucide-react'
+
+// Trove Logo Component
+function TroveLogo({ size = 'md', className = '' }) {
+  const sizes = {
+    sm: 'w-4 h-4',
+    md: 'w-8 h-8',
+    lg: 'w-12 h-12',
+    xl: 'w-16 h-16'
+  }
+  
+  return (
+    <svg 
+      viewBox="0 0 100 100" 
+      className={`${sizes[size]} ${className}`}
+      fill="none"
+    >
+      {/* Gem shape */}
+      <defs>
+        <linearGradient id="troveGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#34d399" />
+          <stop offset="100%" stopColor="#06b6d4" />
+        </linearGradient>
+      </defs>
+      {/* Main gem body */}
+      <polygon 
+        points="50,5 90,35 75,95 25,95 10,35" 
+        fill="url(#troveGradient)"
+      />
+      {/* Top facet */}
+      <polygon 
+        points="50,5 90,35 50,45 10,35" 
+        fill="rgba(255,255,255,0.3)"
+      />
+      {/* Left facet */}
+      <polygon 
+        points="10,35 50,45 25,95" 
+        fill="rgba(0,0,0,0.1)"
+      />
+      {/* Inner shine */}
+      <polygon 
+        points="50,45 90,35 75,95 25,95" 
+        fill="rgba(255,255,255,0.1)"
+      />
+    </svg>
+  )
+}
 
 // Icon options
 const iconOptions = [
@@ -25,15 +71,6 @@ const colorOptions = [
 ]
 
 // Helper Components
-function IconComponent({ name, className = "w-4 h-4" }) {
-  const iconObj = iconOptions.find(i => i.name === name)
-  if (iconObj) {
-    const Icon = iconObj.icon
-    return <Icon className={className} />
-  }
-  return <Image className={className} />
-}
-
 function ImageBox({ src, color, alt }) {
   if (src) {
     return <img src={src} alt={alt} className="w-full h-full object-cover" />
@@ -70,7 +107,7 @@ function Modal({ isOpen, onClose, title, children, isDark }) {
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div 
-        className="w-full max-w-sm rounded-2xl p-6 border animate-fade-in"
+        className="w-full max-w-sm rounded-2xl p-6 border animate-fade-in max-h-[90vh] overflow-y-auto"
         style={{ 
           backgroundColor: isDark ? '#171717' : '#ffffff',
           borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'
@@ -116,11 +153,15 @@ export default function TroveApp() {
   
   // Form state
   const [authForm, setAuthForm] = useState({ email: '', password: '', username: '', displayName: '' })
-  const [newAlbum, setNewAlbum] = useState({ name: '', coverColor: '#5A67D8', icon: 'music', isPublic: false })
+  const [newAlbum, setNewAlbum] = useState({ name: '', coverColor: '#5A67D8', icon: 'music', isPublic: false, coverImage: null, coverPreview: null })
   const [newItem, setNewItem] = useState({ title: '', link: '', imageColor: '#5A67D8' })
   const [editProfile, setEditProfile] = useState({ display_name: '', bio: '', avatar_color: '#5A67D8' })
   const [authError, setAuthError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [uploadingCover, setUploadingCover] = useState(false)
+  
+  // Refs
+  const coverInputRef = useRef(null)
 
   // Initialize
   useEffect(() => {
@@ -230,7 +271,6 @@ export default function TroveApp() {
           }
         })
         if (error) throw error
-        // Show email confirmation message
         setShowEmailConfirmation(true)
       }
       setAuthForm({ email: '', password: '', username: '', displayName: '' })
@@ -245,27 +285,99 @@ export default function TroveApp() {
     setActiveTab('discover')
   }
 
+  // Cover image handler
+  const handleCoverImageSelect = (e) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Image must be less than 5MB')
+        return
+      }
+      setNewAlbum({ 
+        ...newAlbum, 
+        coverImage: file, 
+        coverPreview: URL.createObjectURL(file) 
+      })
+    }
+  }
+
+  const removeCoverImage = () => {
+    if (newAlbum.coverPreview) {
+      URL.revokeObjectURL(newAlbum.coverPreview)
+    }
+    setNewAlbum({ ...newAlbum, coverImage: null, coverPreview: null })
+  }
+
+  // Upload cover image to Supabase Storage
+  const uploadCoverImage = async (file, albumId) => {
+    const fileExt = file.name.split('.').pop()
+    const fileName = `${albumId}-${Date.now()}.${fileExt}`
+    const filePath = `covers/${fileName}`
+
+    const { error: uploadError } = await supabase.storage
+      .from('images')
+      .upload(filePath, file)
+
+    if (uploadError) throw uploadError
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('images')
+      .getPublicUrl(filePath)
+
+    return publicUrl
+  }
+
   // Album handlers
   const handleCreateAlbum = async () => {
     if (!newAlbum.name.trim() || !user) return
     setSaving(true)
     
-    const { data, error } = await supabase
-      .from('albums')
-      .insert({
-        user_id: user.id,
-        name: newAlbum.name.trim(),
-        cover_color: newAlbum.coverColor,
-        icon: newAlbum.icon,
-        is_public: newAlbum.isPublic
-      })
-      .select()
-      .single()
+    try {
+      // First create the album
+      const { data, error } = await supabase
+        .from('albums')
+        .insert({
+          user_id: user.id,
+          name: newAlbum.name.trim(),
+          cover_color: newAlbum.coverColor,
+          icon: newAlbum.icon,
+          is_public: newAlbum.isPublic
+        })
+        .select()
+        .single()
 
-    if (!error && data) {
-      setAlbums([data, ...albums])
+      if (error) throw error
+
+      // If there's a cover image, upload it
+      if (newAlbum.coverImage && data) {
+        setUploadingCover(true)
+        const coverUrl = await uploadCoverImage(newAlbum.coverImage, data.id)
+        
+        // Update album with cover URL
+        const { data: updatedAlbum } = await supabase
+          .from('albums')
+          .update({ cover_url: coverUrl })
+          .eq('id', data.id)
+          .select()
+          .single()
+
+        if (updatedAlbum) {
+          setAlbums([updatedAlbum, ...albums])
+        }
+        setUploadingCover(false)
+      } else if (data) {
+        setAlbums([data, ...albums])
+      }
+
+      // Clean up
+      if (newAlbum.coverPreview) {
+        URL.revokeObjectURL(newAlbum.coverPreview)
+      }
       setShowCreateModal(false)
-      setNewAlbum({ name: '', coverColor: '#5A67D8', icon: 'music', isPublic: false })
+      setNewAlbum({ name: '', coverColor: '#5A67D8', icon: 'music', isPublic: false, coverImage: null, coverPreview: null })
+    } catch (err) {
+      console.error('Error creating album:', err)
+      alert('Failed to create collection. Please try again.')
     }
     setSaving(false)
   }
@@ -391,7 +503,7 @@ export default function TroveApp() {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: 'var(--bg-primary)' }}>
         <div className="flex items-center gap-3">
-          <span className="w-3 h-3 rounded-full bg-gradient-to-r from-emerald-400 to-cyan-500 animate-pulse" />
+          <TroveLogo size="sm" className="animate-pulse" />
           <span className="text-lg font-light" style={{ color: 'var(--text-muted)' }}>trove</span>
         </div>
       </div>
@@ -418,7 +530,7 @@ export default function TroveApp() {
             <h1 className="text-lg font-light">
               {selectedAlbum ? selectedAlbum.name : (
                 <span className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-gradient-to-r from-emerald-400 to-cyan-500 animate-pulse" />
+                  <TroveLogo size="sm" />
                   trove
                 </span>
               )}
@@ -468,8 +580,8 @@ export default function TroveApp() {
           <div className="space-y-6">
             {!user && (
               <div className="text-center py-8 mb-4">
-                <div className="w-16 h-16 mx-auto rounded-full bg-gradient-to-r from-emerald-400 to-cyan-500 flex items-center justify-center mb-4">
-                  <span className="text-2xl">💎</span>
+                <div className="w-20 h-20 mx-auto mb-4">
+                  <TroveLogo size="xl" />
                 </div>
                 <h2 className="text-xl font-light mb-2">Welcome to Trove</h2>
                 <p className="text-sm mb-4" style={textMuted}>Discover collections from the community</p>
@@ -660,29 +772,53 @@ export default function TroveApp() {
       </Modal>
 
       {/* Create Album Modal */}
-      <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="Create Collection" isDark={isDark}>
+      <Modal isOpen={showCreateModal} onClose={() => { setShowCreateModal(false); removeCoverImage() }} title="Create Collection" isDark={isDark}>
         <div className="space-y-5">
           <input type="text" placeholder="Collection name" value={newAlbum.name} onChange={(e) => setNewAlbum({ ...newAlbum, name: e.target.value })} className="w-full px-3 py-2.5 rounded-lg border text-sm" style={{ ...bgSecondary, ...borderStyle, color: 'var(--text-primary)' }} />
           
+          {/* Cover Image Upload */}
           <div>
-            <label className="block text-xs mb-2" style={textMuted}>Color</label>
-            <div className="flex gap-2 flex-wrap">
-              {colorOptions.map(color => (
-                <button key={color} onClick={() => setNewAlbum({ ...newAlbum, coverColor: color })} className={`w-8 h-8 rounded-full ${newAlbum.coverColor === color ? 'ring-2 ring-offset-2' : ''}`} style={{ backgroundColor: color, ringColor: 'var(--text-primary)', ringOffsetColor: 'var(--bg-secondary)' }} />
-              ))}
-            </div>
+            <label className="block text-xs mb-2" style={textMuted}>Cover Image</label>
+            <input
+              ref={coverInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleCoverImageSelect}
+              className="hidden"
+            />
+            {newAlbum.coverPreview ? (
+              <div className="relative w-full aspect-video rounded-xl overflow-hidden">
+                <img src={newAlbum.coverPreview} alt="Cover preview" className="w-full h-full object-cover" />
+                <button 
+                  onClick={removeCoverImage}
+                  className="absolute top-2 right-2 p-1.5 rounded-full bg-black/60 hover:bg-black/80 transition-colors"
+                >
+                  <X className="w-4 h-4 text-white" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => coverInputRef.current?.click()}
+                className="w-full aspect-video rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-2 transition-colors hover:border-emerald-500/50"
+                style={{ borderColor: 'var(--border-color)' }}
+              >
+                <Camera className="w-6 h-6" style={textMuted} />
+                <span className="text-xs" style={textMuted}>Upload cover image</span>
+              </button>
+            )}
           </div>
           
-          <div>
-            <label className="block text-xs mb-2" style={textMuted}>Icon</label>
-            <div className="flex gap-1.5 flex-wrap">
-              {iconOptions.map(({ name, icon: Icon }) => (
-                <button key={name} onClick={() => setNewAlbum({ ...newAlbum, icon: name })} className={`p-2.5 rounded-lg border ${newAlbum.icon === name ? 'border-white/30' : ''}`} style={{ ...bgSecondary, ...borderStyle }}>
-                  <Icon className="w-4 h-4" />
-                </button>
-              ))}
+          {/* Color picker - only show if no cover image */}
+          {!newAlbum.coverPreview && (
+            <div>
+              <label className="block text-xs mb-2" style={textMuted}>Or choose a color</label>
+              <div className="flex gap-2 flex-wrap">
+                {colorOptions.map(color => (
+                  <button key={color} onClick={() => setNewAlbum({ ...newAlbum, coverColor: color })} className={`w-8 h-8 rounded-full ${newAlbum.coverColor === color ? 'ring-2 ring-offset-2' : ''}`} style={{ backgroundColor: color, ringColor: 'var(--text-primary)', ringOffsetColor: 'var(--bg-secondary)' }} />
+                ))}
+              </div>
             </div>
-          </div>
+          )}
           
           <div className="flex gap-2">
             <button onClick={() => setNewAlbum({ ...newAlbum, isPublic: false })} className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border ${!newAlbum.isPublic ? 'border-white/30' : ''}`} style={{ ...bgSecondary, ...borderStyle }}>
@@ -694,7 +830,7 @@ export default function TroveApp() {
           </div>
           
           <button onClick={handleCreateAlbum} disabled={saving || !newAlbum.name.trim()} className="w-full py-3 rounded-lg font-medium text-sm disabled:opacity-50" style={{ backgroundColor: isDark ? '#fff' : '#000', color: isDark ? '#000' : '#fff' }}>
-            {saving ? 'Creating...' : 'Create Collection'}
+            {saving ? (uploadingCover ? 'Uploading cover...' : 'Creating...') : 'Create Collection'}
           </button>
         </div>
       </Modal>
