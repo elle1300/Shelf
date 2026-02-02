@@ -675,7 +675,7 @@ export default function TroveApp() {
                 <Plus className="w-6 h-6" style={textMuted} />
               </div>
               <p className="mb-4" style={textMuted}>Your trove is empty</p>
-              <button onClick={() => setShowCreateModal(true)} className="text-sm text-emerald-400">Create your first collection</button>
+              <button onClick={() => setShowCreateModal(true)} className="text-sm text-emerald-400">Create your first collection ✨</button>
             </div>
           ) : (
             <div className="grid grid-cols-3 gap-3">
@@ -794,7 +794,7 @@ export default function TroveApp() {
       )}
 
       {/* Auth Modal */}
-      <Modal isOpen={showAuthModal} onClose={() => { setShowAuthModal(false); setShowEmailConfirmation(false); setAuthError('') }} title={showEmailConfirmation ? 'Check your inbox' : (isLogin ? 'Welcome back' : 'Create account')} isDark={isDark}>
+      <Modal isOpen={showAuthModal} onClose={() => { setShowAuthModal(false); setShowEmailConfirmation(false); setAuthError('') }} title={showEmailConfirmation ? 'Check your inbox 📬' : (isLogin ? 'Welcome back' : 'Create account')} isDark={isDark}>
         {showEmailConfirmation ? (
           // Email confirmation message
           <div className="text-center py-4">
@@ -888,16 +888,16 @@ export default function TroveApp() {
           )}
           
           <div className="flex gap-2">
-            <button onClick={() => setNewAlbum({ ...newAlbum, isPublic: false })} className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border ${!newAlbum.isPublic ? 'border-white/30' : ''}`} style={{ ...bgSecondary, ...borderStyle }}>
-              <Lock className="w-3.5 h-3.5" /><span className="text-xs">Private</span>
+            <button onClick={() => setNewAlbum({ ...newAlbum, isPublic: false })} className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border transition-all ${!newAlbum.isPublic ? 'bg-blue-500/10 border-blue-500/30' : ''}`} style={newAlbum.isPublic ? { ...bgSecondary, ...borderStyle } : {}}>
+              <Lock className={`w-3.5 h-3.5 ${!newAlbum.isPublic ? 'text-blue-400' : ''}`} /><span className="text-xs">Private</span>
             </button>
-            <button onClick={() => setNewAlbum({ ...newAlbum, isPublic: true })} className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border ${newAlbum.isPublic ? 'bg-green-500/10 border-green-500/30' : ''}`} style={!newAlbum.isPublic ? { ...bgSecondary, ...borderStyle } : {}}>
-              <Globe className="w-3.5 h-3.5 text-green-400" /><span className="text-xs">Public</span>
+            <button onClick={() => setNewAlbum({ ...newAlbum, isPublic: true })} className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border transition-all ${newAlbum.isPublic ? 'bg-green-500/10 border-green-500/30' : ''}`} style={!newAlbum.isPublic ? { ...bgSecondary, ...borderStyle } : {}}>
+              <Globe className={`w-3.5 h-3.5 ${newAlbum.isPublic ? 'text-green-400' : ''}`} /><span className="text-xs">Public</span>
             </button>
           </div>
           
           <button onClick={handleCreateAlbum} disabled={saving || !newAlbum.name.trim()} className="w-full py-3 rounded-lg font-medium text-sm disabled:opacity-50" style={{ backgroundColor: isDark ? '#fff' : '#000', color: isDark ? '#000' : '#fff' }}>
-            {saving ? (uploadingCover ? 'Uploading cover...' : 'Creating...') : 'Create Collection'}
+            {saving ? (uploadingCover ? 'Uploading cover...' : 'Creating...') : 'Create Collection ✨'}
           </button>
         </div>
       </Modal>
