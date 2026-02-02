@@ -159,9 +159,13 @@ export default function TroveApp() {
   const [authError, setAuthError] = useState('')
   const [saving, setSaving] = useState(false)
   const [uploadingCover, setUploadingCover] = useState(false)
+  const [avatarImage, setAvatarImage] = useState(null)
+  const [avatarPreview, setAvatarPreview] = useState(null)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
   
   // Refs
   const coverInputRef = useRef(null)
+  const avatarInputRef = useRef(null)
 
   // Initialize
   useEffect(() => {
@@ -327,6 +331,45 @@ export default function TroveApp() {
     return publicUrl
   }
 
+  // Avatar image handlers
+  const handleAvatarImageSelect = (e) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Image must be less than 5MB')
+        return
+      }
+      setAvatarImage(file)
+      setAvatarPreview(URL.createObjectURL(file))
+    }
+  }
+
+  const removeAvatarImage = () => {
+    if (avatarPreview) {
+      URL.revokeObjectURL(avatarPreview)
+    }
+    setAvatarImage(null)
+    setAvatarPreview(null)
+  }
+
+  const uploadAvatarImage = async (file, userId) => {
+    const fileExt = file.name.split('.').pop()
+    const fileName = `${userId}-${Date.now()}.${fileExt}`
+    const filePath = `avatars/${fileName}`
+
+    const { error: uploadError } = await supabase.storage
+      .from('images')
+      .upload(filePath, file)
+
+    if (uploadError) throw uploadError
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('images')
+      .getPublicUrl(filePath)
+
+    return publicUrl
+  }
+
   // Album handlers
   const handleCreateAlbum = async () => {
     if (!newAlbum.name.trim() || !user) return
@@ -438,14 +481,38 @@ export default function TroveApp() {
   const handleUpdateProfile = async () => {
     if (!user) return
     setSaving(true)
-    const { data } = await supabase
-      .from('profiles')
-      .update(editProfile)
-      .eq('id', user.id)
-      .select()
-      .single()
-    if (data) setProfile(data)
-    setShowEditProfileModal(false)
+    
+    try {
+      let updateData = { ...editProfile }
+      
+      // If there's a new avatar image, upload it
+      if (avatarImage) {
+        setUploadingAvatar(true)
+        const avatarUrl = await uploadAvatarImage(avatarImage, user.id)
+        updateData.avatar_url = avatarUrl
+        setUploadingAvatar(false)
+      }
+      
+      const { data } = await supabase
+        .from('profiles')
+        .update(updateData)
+        .eq('id', user.id)
+        .select()
+        .single()
+      
+      if (data) setProfile(data)
+      
+      // Clean up
+      if (avatarPreview) {
+        URL.revokeObjectURL(avatarPreview)
+      }
+      setAvatarImage(null)
+      setAvatarPreview(null)
+      setShowEditProfileModal(false)
+    } catch (err) {
+      console.error('Error updating profile:', err)
+      alert('Failed to update profile. Please try again.')
+    }
     setSaving(false)
   }
 
@@ -857,13 +924,50 @@ export default function TroveApp() {
       </Modal>
 
       {/* Edit Profile Modal */}
-      <Modal isOpen={showEditProfileModal} onClose={() => setShowEditProfileModal(false)} title="Edit Profile" isDark={isDark}>
+      <Modal isOpen={showEditProfileModal} onClose={() => { setShowEditProfileModal(false); removeAvatarImage() }} title="Edit Profile" isDark={isDark}>
         <div className="space-y-5">
+          {/* Avatar Upload */}
+          <div className="flex flex-col items-center gap-3">
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleAvatarImageSelect}
+              className="hidden"
+            />
+            <div className="relative">
+              <div 
+                className="w-24 h-24 rounded-full flex items-center justify-center font-medium text-white text-2xl overflow-hidden"
+                style={{ backgroundColor: editProfile.avatar_color || '#5A67D8' }}
+              >
+                {avatarPreview ? (
+                  <img src={avatarPreview} alt="Avatar preview" className="w-full h-full object-cover" />
+                ) : profile?.avatar_url ? (
+                  <img src={profile.avatar_url} alt="Current avatar" className="w-full h-full object-cover" />
+                ) : (
+                  (profile?.display_name || profile?.username || 'U').charAt(0).toUpperCase()
+                )}
+              </div>
+              <button
+                onClick={() => avatarInputRef.current?.click()}
+                className="absolute bottom-0 right-0 p-2 rounded-full bg-emerald-500 hover:bg-emerald-600 transition-colors shadow-lg"
+              >
+                <Camera className="w-4 h-4 text-white" />
+              </button>
+            </div>
+            {avatarPreview && (
+              <button onClick={removeAvatarImage} className="text-xs text-red-400">
+                Remove new photo
+              </button>
+            )}
+            <p className="text-xs" style={textMuted}>Tap to change photo</p>
+          </div>
+
           <input type="text" placeholder="Display Name" value={editProfile.display_name} onChange={(e) => setEditProfile({ ...editProfile, display_name: e.target.value })} className="w-full px-3 py-2.5 rounded-lg border text-sm" style={{ ...bgSecondary, ...borderStyle, color: 'var(--text-primary)' }} />
           <textarea placeholder="Bio" value={editProfile.bio} onChange={(e) => setEditProfile({ ...editProfile, bio: e.target.value })} rows={3} className="w-full px-3 py-2.5 rounded-lg border text-sm resize-none" style={{ ...bgSecondary, ...borderStyle, color: 'var(--text-primary)' }} />
           
           <div>
-            <label className="block text-xs mb-2" style={textMuted}>Avatar Color</label>
+            <label className="block text-xs mb-2" style={textMuted}>Avatar Color (if no photo)</label>
             <div className="flex gap-2 flex-wrap">
               {colorOptions.map(color => (
                 <button key={color} onClick={() => setEditProfile({ ...editProfile, avatar_color: color })} className={`w-8 h-8 rounded-full ${editProfile.avatar_color === color ? 'ring-2 ring-offset-2' : ''}`} style={{ backgroundColor: color, ringColor: 'var(--text-primary)', ringOffsetColor: 'var(--bg-secondary)' }} />
@@ -872,7 +976,7 @@ export default function TroveApp() {
           </div>
           
           <button onClick={handleUpdateProfile} disabled={saving} className="w-full py-3 rounded-lg font-medium text-sm flex items-center justify-center gap-2" style={{ backgroundColor: isDark ? '#fff' : '#000', color: isDark ? '#000' : '#fff' }}>
-            {saving ? 'Saving...' : <><Check className="w-4 h-4" /> Save Changes</>}
+            {saving ? (uploadingAvatar ? 'Uploading photo...' : 'Saving...') : <><Check className="w-4 h-4" /> Save Changes</>}
           </button>
         </div>
       </Modal>
