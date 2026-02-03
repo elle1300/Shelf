@@ -303,7 +303,7 @@ export default function TroveApp() {
     
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(forgotPasswordEmail, {
-        redirectTo: `${window.location.origin}/reset-password`,
+        redirectTo: window.location.origin,
       })
       if (error) throw error
       setShowPasswordResetSent(true)
