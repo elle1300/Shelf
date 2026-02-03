@@ -1,48 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '../../lib/supabase'
+import { supabase } from '@/lib/supabase'
 import { Eye, EyeOff, Check, ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 
-// Trove Logo Component
-function TroveLogo({ size = 'md', className = '' }) {
-  const sizes = {
-    sm: 'w-4 h-4',
-    md: 'w-8 h-8',
-    lg: 'w-12 h-12',
-    xl: 'w-16 h-16'
-  }
-  
-  return (
-    <svg 
-      viewBox="0 0 100 100" 
-      className={`${sizes[size]} ${className}`}
-      fill="none"
-    >
-      <defs>
-        <linearGradient id="troveGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#34d399" />
-          <stop offset="100%" stopColor="#06b6d4" />
-        </linearGradient>
-      </defs>
-      <polygon 
-        points="50,5 90,35 75,95 25,95 10,35" 
-        fill="url(#troveGradient)"
-      />
-      <polygon 
-        points="50,5 90,35 50,45 10,35" 
-        fill="rgba(255,255,255,0.3)"
-      />
-      <polygon 
-        points="10,35 50,45 25,95" 
-        fill="rgba(0,0,0,0.1)"
-      />
-    </svg>
-  )
-}
-
-export default function ResetPasswordPage() {
+export default function Page() {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -101,20 +64,29 @@ export default function ResetPasswordPage() {
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="flex items-center justify-center gap-2 mb-4">
-            <TroveLogo size="md" />
+            <svg viewBox="0 0 100 100" className="w-8 h-8" fill="none">
+              <defs>
+                <linearGradient id="troveGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#34d399" />
+                  <stop offset="100%" stopColor="#06b6d4" />
+                </linearGradient>
+              </defs>
+              <polygon points="50,5 90,35 75,95 25,95 10,35" fill="url(#troveGradient)" />
+              <polygon points="50,5 90,35 50,45 10,35" fill="rgba(255,255,255,0.3)" />
+              <polygon points="10,35 50,45 25,95" fill="rgba(0,0,0,0.1)" />
+            </svg>
             <span className="text-2xl font-light">trove</span>
           </div>
         </div>
 
         {success ? (
-          // Success state
           <div className="text-center p-6 rounded-2xl border" style={{ ...bgSecondary, ...borderStyle }}>
             <div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/20 flex items-center justify-center mb-4">
               <Check className="w-8 h-8 text-emerald-400" />
             </div>
             <h2 className="text-xl font-medium mb-2">Password updated!</h2>
             <p className="text-sm mb-6" style={textMuted}>
-              Your password has been successfully reset. You can now sign in with your new password.
+              Your password has been successfully reset.
             </p>
             <Link 
               href="/"
@@ -125,7 +97,6 @@ export default function ResetPasswordPage() {
             </Link>
           </div>
         ) : (
-          // Reset password form
           <div className="p-6 rounded-2xl border" style={{ ...bgSecondary, ...borderStyle }}>
             <h2 className="text-xl font-medium mb-2">Reset your password</h2>
             <p className="text-sm mb-6" style={textMuted}>
@@ -190,4 +161,3 @@ export default function ResetPasswordPage() {
     </div>
   )
 }
-//test 
