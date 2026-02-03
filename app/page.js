@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase'
 import { 
   Plus, Sparkles, ExternalLink, ArrowLeft, X, Music, BookOpen, Film, 
   Utensils, Dumbbell, Palette, Image, Upload, User, Globe, Lock, 
-  Heart, Search, Home, Compass, LogOut, Edit3, Check, Sun, Moon, Eye, EyeOff, Mail, Camera
+  Heart, Search, Home, Compass, LogOut, Edit3, Check, Sun, Moon, Eye, EyeOff, Mail, Camera, Trash2
 } from 'lucide-react'
 
 // Trove Logo Component
@@ -148,15 +148,20 @@ export default function TroveApp() {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showAddItemModal, setShowAddItemModal] = useState(false)
   const [showEditProfileModal, setShowEditProfileModal] = useState(false)
+  const [showEditAlbumModal, setShowEditAlbumModal] = useState(false)
   const [isLogin, setIsLogin] = useState(true)
   const [showEmailConfirmation, setShowEmailConfirmation] = useState(false)
+  const [showForgotPassword, setShowForgotPassword] = useState(false)
+  const [showPasswordResetSent, setShowPasswordResetSent] = useState(false)
   
   // Form state
   const [authForm, setAuthForm] = useState({ email: '', password: '', username: '', displayName: '' })
   const [newAlbum, setNewAlbum] = useState({ name: '', coverColor: '#5A67D8', icon: 'music', isPublic: false, coverImage: null, coverPreview: null })
+  const [editAlbum, setEditAlbum] = useState({ name: '', coverColor: '#5A67D8', isPublic: false, coverImage: null, coverPreview: null })
   const [newItem, setNewItem] = useState({ title: '', link: '', imageColor: '#5A67D8' })
   const [editProfile, setEditProfile] = useState({ display_name: '', bio: '', avatar_color: '#5A67D8' })
   const [authError, setAuthError] = useState('')
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState('')
   const [saving, setSaving] = useState(false)
   const [uploadingCover, setUploadingCover] = useState(false)
   const [avatarImage, setAvatarImage] = useState(null)
@@ -165,6 +170,7 @@ export default function TroveApp() {
   
   // Refs
   const coverInputRef = useRef(null)
+  const editCoverInputRef = useRef(null)
   const avatarInputRef = useRef(null)
 
   // Initialize
@@ -287,6 +293,25 @@ export default function TroveApp() {
   const handleSignOut = async () => {
     await supabase.auth.signOut()
     setActiveTab('discover')
+  }
+
+  // Forgot password handler
+  const handleForgotPassword = async (e) => {
+    e.preventDefault()
+    setAuthError('')
+    setSaving(true)
+    
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(forgotPasswordEmail, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      })
+      if (error) throw error
+      setShowPasswordResetSent(true)
+      setForgotPasswordEmail('')
+    } catch (err) {
+      setAuthError(err.message)
+    }
+    setSaving(false)
   }
 
   // Cover image handler
@@ -463,6 +488,128 @@ export default function TroveApp() {
     }
   }
 
+  // Edit album handlers
+  const openEditAlbumModal = () => {
+    if (!selectedAlbum) return
+    setEditAlbum({
+      name: selectedAlbum.name,
+      coverColor: selectedAlbum.cover_color || '#5A67D8',
+      isPublic: selectedAlbum.is_public,
+      coverImage: null,
+      coverPreview: selectedAlbum.cover_url || null
+    })
+    setShowEditAlbumModal(true)
+  }
+
+  const handleEditCoverImageSelect = (e) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Image must be less than 5MB')
+        return
+      }
+      setEditAlbum({ 
+        ...editAlbum, 
+        coverImage: file, 
+        coverPreview: URL.createObjectURL(file) 
+      })
+    }
+  }
+
+  const removeEditCoverImage = () => {
+    if (editAlbum.coverPreview && editAlbum.coverImage) {
+      URL.revokeObjectURL(editAlbum.coverPreview)
+    }
+    setEditAlbum({ ...editAlbum, coverImage: null, coverPreview: null })
+  }
+
+  const handleUpdateAlbum = async () => {
+    if (!editAlbum.name.trim() || !selectedAlbum || !user) return
+    setSaving(true)
+    
+    try {
+      let updateData = {
+        name: editAlbum.name.trim(),
+        cover_color: editAlbum.coverColor,
+        is_public: editAlbum.isPublic
+      }
+
+      // If there's a new cover image, upload it
+      if (editAlbum.coverImage) {
+        setUploadingCover(true)
+        const coverUrl = await uploadCoverImage(editAlbum.coverImage, selectedAlbum.id)
+        updateData.cover_url = coverUrl
+        setUploadingCover(false)
+      } else if (!editAlbum.coverPreview) {
+        // If cover was removed, clear it
+        updateData.cover_url = null
+      }
+
+      const { data, error } = await supabase
+        .from('albums')
+        .update(updateData)
+        .eq('id', selectedAlbum.id)
+        .select()
+        .single()
+
+      if (error) throw error
+
+      if (data) {
+        setSelectedAlbum(data)
+        setAlbums(albums.map(a => a.id === data.id ? data : a))
+      }
+
+      // Clean up
+      if (editAlbum.coverImage && editAlbum.coverPreview) {
+        URL.revokeObjectURL(editAlbum.coverPreview)
+      }
+      setShowEditAlbumModal(false)
+    } catch (err) {
+      console.error('Error updating album:', err)
+      alert('Failed to update collection. Please try again.')
+    }
+    setSaving(false)
+  }
+
+  const handleDeleteAlbum = async () => {
+    if (!selectedAlbum || !user) return
+    
+    const confirmed = window.confirm('Are you sure you want to delete this collection? This action cannot be undone.')
+    if (!confirmed) return
+
+    setSaving(true)
+    try {
+      // Delete all items in the album first
+      await supabase
+        .from('items')
+        .delete()
+        .eq('album_id', selectedAlbum.id)
+
+      // Delete all likes for this album
+      await supabase
+        .from('likes')
+        .delete()
+        .eq('album_id', selectedAlbum.id)
+
+      // Delete the album
+      const { error } = await supabase
+        .from('albums')
+        .delete()
+        .eq('id', selectedAlbum.id)
+
+      if (error) throw error
+
+      setAlbums(albums.filter(a => a.id !== selectedAlbum.id))
+      setSelectedAlbum(null)
+      setAlbumItems([])
+      setShowEditAlbumModal(false)
+    } catch (err) {
+      console.error('Error deleting album:', err)
+      alert('Failed to delete collection. Please try again.')
+    }
+    setSaving(false)
+  }
+
   const handleLike = async (albumId) => {
     if (!user) {
       setShowAuthModal(true)
@@ -621,9 +768,8 @@ export default function TroveApp() {
           
           {selectedAlbum && selectedAlbum.user_id === user?.id && (
             <div className="flex items-center gap-2">
-              <button onClick={handleTogglePrivacy} className={`flex items-center gap-1.5 px-3 py-2 rounded-full border ${selectedAlbum.is_public ? 'bg-green-500/10 border-green-500/30' : ''}`} style={!selectedAlbum.is_public ? { ...bgSecondary, ...borderStyle } : {}}>
-                {selectedAlbum.is_public ? <Globe className="w-3.5 h-3.5 text-green-400" /> : <Lock className="w-3.5 h-3.5" />}
-                <span className="text-xs">{selectedAlbum.is_public ? 'Public' : 'Private'}</span>
+              <button onClick={openEditAlbumModal} className="flex items-center gap-1.5 px-3 py-2 rounded-full border" style={{ ...bgSecondary, ...borderStyle }}>
+                <Edit3 className="w-3.5 h-3.5" />
               </button>
               <button onClick={() => setShowAddItemModal(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-full border" style={{ ...bgSecondary, ...borderStyle }}>
                 <Plus className="w-3.5 h-3.5" />
@@ -794,8 +940,62 @@ export default function TroveApp() {
       )}
 
       {/* Auth Modal */}
-      <Modal isOpen={showAuthModal} onClose={() => { setShowAuthModal(false); setShowEmailConfirmation(false); setAuthError('') }} title={showEmailConfirmation ? 'Check your inbox 📬' : (isLogin ? 'Welcome back' : 'Create account')} isDark={isDark}>
-        {showEmailConfirmation ? (
+      <Modal isOpen={showAuthModal} onClose={() => { setShowAuthModal(false); setShowEmailConfirmation(false); setShowForgotPassword(false); setShowPasswordResetSent(false); setAuthError('') }} title={showPasswordResetSent ? 'Check your inbox 📬' : (showForgotPassword ? 'Reset password' : (showEmailConfirmation ? 'Check your inbox 📬' : (isLogin ? 'Welcome back' : 'Create account')))} isDark={isDark}>
+        {showPasswordResetSent ? (
+          // Password reset email sent
+          <div className="text-center py-4">
+            <div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/20 flex items-center justify-center mb-4">
+              <Mail className="w-8 h-8 text-emerald-400" />
+            </div>
+            <h3 className="text-lg font-medium mb-2">Check your email</h3>
+            <p className="text-sm mb-4" style={textMuted}>
+              We've sent a password reset link to your email address. Click the link to create a new password.
+            </p>
+            <p className="text-xs mb-6" style={textMuted}>
+              Don't see it? Check your spam folder.
+            </p>
+            <button 
+              onClick={() => { setShowPasswordResetSent(false); setShowForgotPassword(false); setIsLogin(true) }} 
+              className="w-full py-3 rounded-lg font-medium text-sm"
+              style={{ backgroundColor: isDark ? '#fff' : '#000', color: isDark ? '#000' : '#fff' }}
+            >
+              Back to Sign In
+            </button>
+          </div>
+        ) : showForgotPassword ? (
+          // Forgot password form
+          <form onSubmit={handleForgotPassword} className="space-y-4">
+            <p className="text-sm" style={textMuted}>
+              Enter your email address and we'll send you a link to reset your password.
+            </p>
+            <input 
+              type="email" 
+              placeholder="Email" 
+              value={forgotPasswordEmail} 
+              onChange={(e) => setForgotPasswordEmail(e.target.value)} 
+              required 
+              className="w-full px-3 py-2.5 rounded-lg border text-sm" 
+              style={{ ...bgSecondary, ...borderStyle, color: 'var(--text-primary)' }} 
+            />
+            {authError && <p className="text-red-400 text-sm">{authError}</p>}
+            <button 
+              type="submit" 
+              disabled={saving} 
+              className="w-full py-3 rounded-lg font-medium text-sm" 
+              style={{ backgroundColor: isDark ? '#fff' : '#000', color: isDark ? '#000' : '#fff' }}
+            >
+              {saving ? 'Sending...' : 'Send Reset Link'}
+            </button>
+            <button 
+              type="button" 
+              onClick={() => { setShowForgotPassword(false); setAuthError('') }} 
+              className="w-full text-sm" 
+              style={textMuted}
+            >
+              Back to Sign In
+            </button>
+          </form>
+        ) : showEmailConfirmation ? (
           // Email confirmation message
           <div className="text-center py-4">
             <div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/20 flex items-center justify-center mb-4">
@@ -831,6 +1031,15 @@ export default function TroveApp() {
             <button type="submit" disabled={saving} className="w-full py-3 rounded-lg font-medium text-sm" style={{ backgroundColor: isDark ? '#fff' : '#000', color: isDark ? '#000' : '#fff' }}>
               {saving ? 'Loading...' : (isLogin ? 'Sign In' : 'Create Account')}
             </button>
+            {isLogin && (
+              <button 
+                type="button" 
+                onClick={() => { setShowForgotPassword(true); setAuthError('') }} 
+                className="w-full text-sm text-emerald-400"
+              >
+                Forgot your password?
+              </button>
+            )}
             <button type="button" onClick={() => { setIsLogin(!isLogin); setAuthError('') }} className="w-full text-sm" style={textMuted}>
               {isLogin ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
             </button>
@@ -977,6 +1186,107 @@ export default function TroveApp() {
           
           <button onClick={handleUpdateProfile} disabled={saving} className="w-full py-3 rounded-lg font-medium text-sm flex items-center justify-center gap-2" style={{ backgroundColor: isDark ? '#fff' : '#000', color: isDark ? '#000' : '#fff' }}>
             {saving ? (uploadingAvatar ? 'Uploading photo...' : 'Saving...') : <><Check className="w-4 h-4" /> Save Changes</>}
+          </button>
+        </div>
+      </Modal>
+
+      {/* Edit Album Modal */}
+      <Modal isOpen={showEditAlbumModal} onClose={() => setShowEditAlbumModal(false)} title="Edit Collection" isDark={isDark}>
+        <div className="space-y-5">
+          <input 
+            type="text" 
+            placeholder="Collection name" 
+            value={editAlbum.name} 
+            onChange={(e) => setEditAlbum({ ...editAlbum, name: e.target.value })} 
+            className="w-full px-3 py-2.5 rounded-lg border text-sm" 
+            style={{ ...bgSecondary, ...borderStyle, color: 'var(--text-primary)' }} 
+          />
+          
+          {/* Cover Image Upload */}
+          <div>
+            <label className="block text-xs mb-2" style={textMuted}>Cover Image</label>
+            <input
+              ref={editCoverInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleEditCoverImageSelect}
+              className="hidden"
+            />
+            {editAlbum.coverPreview ? (
+              <div className="relative w-full aspect-video rounded-xl overflow-hidden">
+                <img src={editAlbum.coverPreview} alt="Cover preview" className="w-full h-full object-cover" />
+                <button 
+                  onClick={removeEditCoverImage}
+                  className="absolute top-2 right-2 p-1.5 rounded-full bg-black/60 hover:bg-black/80 transition-colors"
+                >
+                  <X className="w-4 h-4 text-white" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => editCoverInputRef.current?.click()}
+                className="w-full aspect-video rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-2 transition-colors hover:border-emerald-500/50"
+                style={{ borderColor: 'var(--border-color)' }}
+              >
+                <Camera className="w-6 h-6" style={textMuted} />
+                <span className="text-xs" style={textMuted}>Upload cover image</span>
+              </button>
+            )}
+          </div>
+          
+          {/* Color picker - only show if no cover image */}
+          {!editAlbum.coverPreview && (
+            <div>
+              <label className="block text-xs mb-2" style={textMuted}>Or choose a color</label>
+              <div className="flex gap-2 flex-wrap">
+                {colorOptions.map(color => (
+                  <button 
+                    key={color} 
+                    onClick={() => setEditAlbum({ ...editAlbum, coverColor: color })} 
+                    className={`w-8 h-8 rounded-full ${editAlbum.coverColor === color ? 'ring-2 ring-offset-2' : ''}`} 
+                    style={{ backgroundColor: color, ringColor: 'var(--text-primary)', ringOffsetColor: 'var(--bg-secondary)' }} 
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+          
+          {/* Privacy Toggle */}
+          <div className="flex gap-2">
+            <button 
+              onClick={() => setEditAlbum({ ...editAlbum, isPublic: false })} 
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border transition-all ${!editAlbum.isPublic ? 'bg-blue-500/10 border-blue-500/30' : ''}`} 
+              style={editAlbum.isPublic ? { ...bgSecondary, ...borderStyle } : {}}
+            >
+              <Lock className={`w-3.5 h-3.5 ${!editAlbum.isPublic ? 'text-blue-400' : ''}`} />
+              <span className="text-xs">Private</span>
+            </button>
+            <button 
+              onClick={() => setEditAlbum({ ...editAlbum, isPublic: true })} 
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border transition-all ${editAlbum.isPublic ? 'bg-green-500/10 border-green-500/30' : ''}`} 
+              style={!editAlbum.isPublic ? { ...bgSecondary, ...borderStyle } : {}}
+            >
+              <Globe className={`w-3.5 h-3.5 ${editAlbum.isPublic ? 'text-green-400' : ''}`} />
+              <span className="text-xs">Public</span>
+            </button>
+          </div>
+          
+          <button 
+            onClick={handleUpdateAlbum} 
+            disabled={saving || !editAlbum.name.trim()} 
+            className="w-full py-3 rounded-lg font-medium text-sm disabled:opacity-50" 
+            style={{ backgroundColor: isDark ? '#fff' : '#000', color: isDark ? '#000' : '#fff' }}
+          >
+            {saving ? (uploadingCover ? 'Uploading cover...' : 'Saving...') : 'Save Changes'}
+          </button>
+          
+          {/* Delete Button */}
+          <button 
+            onClick={handleDeleteAlbum} 
+            disabled={saving}
+            className="w-full py-3 rounded-lg font-medium text-sm flex items-center justify-center gap-2 text-red-400 border border-red-400/30 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+          >
+            <Trash2 className="w-4 h-4" /> Delete Collection
           </button>
         </div>
       </Modal>
