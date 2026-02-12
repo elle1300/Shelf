@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase'
 import { 
   Plus, Sparkles, ExternalLink, ArrowLeft, X, Music, BookOpen, Film, 
   Utensils, Dumbbell, Palette, Image, Upload, User, Globe, Lock, 
-  Heart, Search, Home, Compass, LogOut, Edit3, Check, Sun, Moon, Eye, EyeOff, Mail, Camera, Trash2
+  Heart, Search, Home, Compass, LogOut, Edit3, Check, Sun, Moon, Eye, EyeOff, Mail, Camera, Trash2, FileText
 } from 'lucide-react'
 
 // Trove Logo Component
@@ -158,12 +158,13 @@ export default function TroveApp() {
   const [authForm, setAuthForm] = useState({ email: '', password: '', username: '', displayName: '' })
   const [newAlbum, setNewAlbum] = useState({ name: '', coverColor: '#5A67D8', icon: 'music', isPublic: false, coverImage: null, coverPreview: null })
   const [editAlbum, setEditAlbum] = useState({ name: '', coverColor: '#5A67D8', isPublic: false, coverImage: null, coverPreview: null })
-  const [newItem, setNewItem] = useState({ title: '', link: '', imageColor: '#5A67D8' })
+  const [newItem, setNewItem] = useState({ title: '', link: '', notes: '', imageColor: '#5A67D8', image: null, imagePreview: null })
   const [editProfile, setEditProfile] = useState({ display_name: '', bio: '', avatar_color: '#5A67D8' })
   const [authError, setAuthError] = useState('')
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState('')
   const [saving, setSaving] = useState(false)
   const [uploadingCover, setUploadingCover] = useState(false)
+  const [uploadingItemImage, setUploadingItemImage] = useState(false)
   const [avatarImage, setAvatarImage] = useState(null)
   const [avatarPreview, setAvatarPreview] = useState(null)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
@@ -172,6 +173,7 @@ export default function TroveApp() {
   const coverInputRef = useRef(null)
   const editCoverInputRef = useRef(null)
   const avatarInputRef = useRef(null)
+  const itemImageInputRef = useRef(null)
 
   // Initialize
   useEffect(() => {
@@ -454,24 +456,96 @@ export default function TroveApp() {
     if (!newItem.title.trim() || !selectedAlbum || !user) return
     setSaving(true)
     
-    const { data, error } = await supabase
-      .from('items')
-      .insert({
-        album_id: selectedAlbum.id,
-        user_id: user.id,
-        title: newItem.title.trim(),
-        link: newItem.link.trim() || null,
-        image_color: newItem.imageColor
-      })
-      .select()
-      .single()
+    try {
+      // First create the item
+      const { data, error } = await supabase
+        .from('items')
+        .insert({
+          album_id: selectedAlbum.id,
+          user_id: user.id,
+          title: newItem.title.trim(),
+          link: newItem.link.trim() || null,
+          notes: newItem.notes.trim() || null,
+          image_color: newItem.imageColor
+        })
+        .select()
+        .single()
 
-    if (!error && data) {
-      setAlbumItems([...albumItems, data])
+      if (error) throw error
+
+      // If there's an image, upload it
+      if (newItem.image && data) {
+        setUploadingItemImage(true)
+        const imageUrl = await uploadItemImage(newItem.image, data.id)
+        
+        // Update item with image URL
+        const { data: updatedItem } = await supabase
+          .from('items')
+          .update({ image_url: imageUrl })
+          .eq('id', data.id)
+          .select()
+          .single()
+
+        if (updatedItem) {
+          setAlbumItems([...albumItems, updatedItem])
+        }
+        setUploadingItemImage(false)
+      } else if (data) {
+        setAlbumItems([...albumItems, data])
+      }
+
+      // Clean up
+      if (newItem.imagePreview) {
+        URL.revokeObjectURL(newItem.imagePreview)
+      }
       setShowAddItemModal(false)
-      setNewItem({ title: '', link: '', imageColor: '#5A67D8' })
+      setNewItem({ title: '', link: '', notes: '', imageColor: '#5A67D8', image: null, imagePreview: null })
+    } catch (err) {
+      console.error('Error adding item:', err)
+      alert('Failed to add item. Please try again.')
     }
     setSaving(false)
+  }
+
+  // Item image handlers
+  const handleItemImageSelect = (e) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Image must be less than 5MB')
+        return
+      }
+      setNewItem({ 
+        ...newItem, 
+        image: file, 
+        imagePreview: URL.createObjectURL(file) 
+      })
+    }
+  }
+
+  const removeItemImage = () => {
+    if (newItem.imagePreview) {
+      URL.revokeObjectURL(newItem.imagePreview)
+    }
+    setNewItem({ ...newItem, image: null, imagePreview: null })
+  }
+
+  const uploadItemImage = async (file, itemId) => {
+    const fileExt = file.name.split('.').pop()
+    const fileName = `${itemId}-${Date.now()}.${fileExt}`
+    const filePath = `items/${fileName}`
+
+    const { error: uploadError } = await supabase.storage
+      .from('images')
+      .upload(filePath, file)
+
+    if (uploadError) throw uploadError
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('images')
+      .getPublicUrl(filePath)
+
+    return publicUrl
   }
 
   const handleTogglePrivacy = async () => {
@@ -732,61 +806,146 @@ export default function TroveApp() {
 
   return (
     <div className="min-h-screen" style={{ ...bgPrimary, color: 'var(--text-primary)' }}>
-      {/* Header */}
-      <header className="sticky top-0 z-40 border-b backdrop-blur-xl" style={{ ...bgPrimary, ...borderStyle }}>
-        <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {selectedAlbum && (
-              <button onClick={() => { setSelectedAlbum(null); setAlbumItems([]) }} className="p-2 -ml-2 rounded-full hover:opacity-70">
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-            )}
-            <h1 className="text-lg font-light">
-              {selectedAlbum ? selectedAlbum.name : (
-                <span className="flex items-center gap-2">
-                  <TroveLogo size="sm" />
-                  trove
-                </span>
-              )}
-            </h1>
-          </div>
-          
-          {/* Header right side */}
-          {!selectedAlbum && activeTab === 'home' && user && (
-            <button onClick={() => setShowCreateModal(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-full border transition-all" style={{ ...bgSecondary, ...borderStyle }}>
-              <Plus className="w-3.5 h-3.5" />
-              <span className="text-xs">New</span>
-            </button>
-          )}
-          
-          {/* Sign in button for non-logged in users */}
-          {!selectedAlbum && !user && (
-            <button onClick={() => setShowAuthModal(true)} className="flex items-center gap-1.5 px-4 py-2 rounded-full font-medium text-sm" style={{ backgroundColor: isDark ? '#fff' : '#000', color: isDark ? '#000' : '#fff' }}>
-              Sign In
-            </button>
-          )}
-          
-          {selectedAlbum && selectedAlbum.user_id === user?.id && (
-            <div className="flex items-center gap-2">
-              <button onClick={openEditAlbumModal} className="flex items-center gap-1.5 px-3 py-2 rounded-full border" style={{ ...bgSecondary, ...borderStyle }}>
-                <Edit3 className="w-3.5 h-3.5" />
-              </button>
-              <button onClick={() => setShowAddItemModal(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-full border" style={{ ...bgSecondary, ...borderStyle }}>
-                <Plus className="w-3.5 h-3.5" />
+      {/* Desktop Sidebar - hidden on mobile */}
+      <aside className="hidden lg:flex fixed left-0 top-0 bottom-0 w-64 flex-col border-r z-50" style={{ ...bgPrimary, ...borderStyle }}>
+        {/* Logo */}
+        <div className="p-6 border-b" style={borderStyle}>
+          <span className="flex items-center gap-2">
+            <TroveLogo size="md" />
+            <span className="text-xl font-light">trove</span>
+          </span>
+        </div>
+        
+        {/* Navigation */}
+        <nav className="flex-1 p-4">
+          {user ? (
+            <div className="space-y-2">
+              {[
+                { id: 'home', icon: Home, label: 'My Collections' },
+                { id: 'discover', icon: Compass, label: 'Discover' },
+                { id: 'profile', icon: User, label: 'Profile' },
+              ].map(tab => (
+                <button 
+                  key={tab.id} 
+                  onClick={() => { setActiveTab(tab.id); setSelectedAlbum(null); setAlbumItems([]) }} 
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${activeTab === tab.id ? 'bg-emerald-500/10 text-emerald-400' : 'hover:bg-white/5'}`}
+                >
+                  <tab.icon className="w-5 h-5" />
+                  <span className="text-sm font-medium">{tab.label}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <button 
+                onClick={() => setActiveTab('discover')} 
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${activeTab === 'discover' ? 'bg-emerald-500/10 text-emerald-400' : 'hover:bg-white/5'}`}
+              >
+                <Compass className="w-5 h-5" />
+                <span className="text-sm font-medium">Discover</span>
               </button>
             </div>
           )}
-          
-          {selectedAlbum && selectedAlbum.user_id !== user?.id && (
-            <button onClick={() => handleLike(selectedAlbum.id)} className={`flex items-center gap-1.5 px-3 py-2 rounded-full border ${likedAlbums.includes(selectedAlbum.id) ? 'bg-red-500/10 border-red-500/30' : ''}`} style={!likedAlbums.includes(selectedAlbum.id) ? { ...bgSecondary, ...borderStyle } : {}}>
-              <Heart className={`w-3.5 h-3.5 ${likedAlbums.includes(selectedAlbum.id) ? 'fill-red-500 text-red-500' : ''}`} />
+        </nav>
+        
+        {/* Bottom actions */}
+        <div className="p-4 border-t" style={borderStyle}>
+          {user ? (
+            <div className="space-y-2">
+              <button 
+                onClick={() => setShowCreateModal(true)} 
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-emerald-500 text-white font-medium text-sm hover:bg-emerald-600 transition-colors"
+              >
+                <Plus className="w-5 h-5" />
+                New Collection
+              </button>
+              <button 
+                onClick={handleSignOut} 
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-white/5 transition-colors"
+                style={textMuted}
+              >
+                <LogOut className="w-5 h-5" />
+                <span className="text-sm">Sign Out</span>
+              </button>
+            </div>
+          ) : (
+            <button 
+              onClick={() => setShowAuthModal(true)} 
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium text-sm"
+              style={{ backgroundColor: isDark ? '#fff' : '#000', color: isDark ? '#000' : '#fff' }}
+            >
+              Sign In
             </button>
           )}
         </div>
-      </header>
+      </aside>
 
-      {/* Main Content */}
-      <main className="max-w-lg mx-auto px-4 py-6 pb-24">
+      {/* Main content wrapper */}
+      <div className="lg:pl-64">
+        {/* Header - different on mobile vs desktop */}
+        <header className="sticky top-0 z-40 border-b backdrop-blur-xl lg:backdrop-blur-none" style={{ ...bgPrimary, ...borderStyle }}>
+          <div className="max-w-lg lg:max-w-6xl mx-auto px-4 lg:px-8 py-3 lg:py-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {selectedAlbum && (
+                <button onClick={() => { setSelectedAlbum(null); setAlbumItems([]) }} className="p-2 -ml-2 rounded-full hover:opacity-70">
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+              )}
+              <h1 className="text-lg lg:text-xl font-light">
+                {selectedAlbum ? selectedAlbum.name : (
+                  <span className="flex items-center gap-2 lg:hidden">
+                    <TroveLogo size="sm" />
+                    trove
+                  </span>
+                )}
+                {!selectedAlbum && (
+                  <span className="hidden lg:block">
+                    {activeTab === 'home' && 'My Collections'}
+                    {activeTab === 'discover' && 'Discover'}
+                    {activeTab === 'profile' && 'Profile'}
+                  </span>
+                )}
+              </h1>
+            </div>
+            
+            {/* Header right side */}
+            {!selectedAlbum && activeTab === 'home' && user && (
+              <button onClick={() => setShowCreateModal(true)} className="lg:hidden flex items-center gap-1.5 px-3 py-2 rounded-full border transition-all" style={{ ...bgSecondary, ...borderStyle }}>
+                <Plus className="w-3.5 h-3.5" />
+                <span className="text-xs">New</span>
+              </button>
+            )}
+            
+            {/* Sign in button for non-logged in users - mobile only */}
+            {!selectedAlbum && !user && (
+              <button onClick={() => setShowAuthModal(true)} className="lg:hidden flex items-center gap-1.5 px-4 py-2 rounded-full font-medium text-sm" style={{ backgroundColor: isDark ? '#fff' : '#000', color: isDark ? '#000' : '#fff' }}>
+                Sign In
+              </button>
+            )}
+            
+            {selectedAlbum && selectedAlbum.user_id === user?.id && (
+              <div className="flex items-center gap-2">
+                <button onClick={openEditAlbumModal} className="flex items-center gap-1.5 px-3 py-2 rounded-full border" style={{ ...bgSecondary, ...borderStyle }}>
+                  <Edit3 className="w-3.5 h-3.5" />
+                  <span className="hidden lg:inline text-xs">Edit</span>
+                </button>
+                <button onClick={() => setShowAddItemModal(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-full border" style={{ ...bgSecondary, ...borderStyle }}>
+                  <Plus className="w-3.5 h-3.5" />
+                  <span className="hidden lg:inline text-xs">Add Item</span>
+                </button>
+              </div>
+            )}
+            
+            {selectedAlbum && selectedAlbum.user_id !== user?.id && (
+              <button onClick={() => handleLike(selectedAlbum.id)} className={`flex items-center gap-1.5 px-3 py-2 rounded-full border ${likedAlbums.includes(selectedAlbum.id) ? 'bg-red-500/10 border-red-500/30' : ''}`} style={!likedAlbums.includes(selectedAlbum.id) ? { ...bgSecondary, ...borderStyle } : {}}>
+                <Heart className={`w-3.5 h-3.5 ${likedAlbums.includes(selectedAlbum.id) ? 'fill-red-500 text-red-500' : ''}`} />
+              </button>
+            )}
+          </div>
+        </header>
+
+        {/* Main Content */}
+        <main className="max-w-lg lg:max-w-6xl mx-auto px-4 lg:px-8 py-6 pb-24 lg:pb-8">
         
         {/* Discover Tab - Available to everyone */}
         {activeTab === 'discover' && !selectedAlbum && (
@@ -804,7 +963,7 @@ export default function TroveApp() {
             {publicAlbums.length === 0 ? (
               <p className="text-center py-12 text-sm" style={textMuted}>No public collections yet</p>
             ) : (
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 lg:gap-4">
                 {publicAlbums.filter(a => a.user_id !== user?.id).map(album => (
                   <AlbumCard key={album.id} album={album} showUser={true} />
                 ))}
@@ -824,7 +983,7 @@ export default function TroveApp() {
               <button onClick={() => setShowCreateModal(true)} className="text-sm text-emerald-400">Create your first collection ✨</button>
             </div>
           ) : (
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 lg:gap-4">
               {albums.map(album => <AlbumCard key={album.id} album={album} isOwn={true} />)}
             </div>
           )
@@ -832,28 +991,28 @@ export default function TroveApp() {
 
         {/* Profile Tab - Only for logged in users */}
         {user && activeTab === 'profile' && !selectedAlbum && profile && (
-          <div className="space-y-6">
+          <div className="space-y-6 lg:max-w-2xl">
             <div className="flex items-start justify-between">
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-4 lg:gap-6">
                 <Avatar user={profile} size="xl" />
                 <div>
-                  <h2 className="text-xl font-medium">{profile.display_name || profile.username}</h2>
-                  <p className="text-sm" style={textMuted}>@{profile.username}</p>
+                  <h2 className="text-xl lg:text-2xl font-medium">{profile.display_name || profile.username}</h2>
+                  <p className="text-sm lg:text-base" style={textMuted}>@{profile.username}</p>
                 </div>
               </div>
-              <button onClick={() => setShowEditProfileModal(true)} className="px-3 py-2 rounded-lg border text-xs" style={{ ...bgSecondary, ...borderStyle }}>Edit</button>
+              <button onClick={() => setShowEditProfileModal(true)} className="px-3 lg:px-4 py-2 rounded-lg border text-xs lg:text-sm" style={{ ...bgSecondary, ...borderStyle }}>Edit Profile</button>
             </div>
             
-            {profile.bio && <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{profile.bio}</p>}
+            {profile.bio && <p className="text-sm lg:text-base" style={{ color: 'var(--text-secondary)' }}>{profile.bio}</p>}
             
             {/* Theme Toggle */}
-            <div className="p-4 rounded-xl border" style={{ ...bgSecondary, ...borderStyle }}>
+            <div className="p-4 lg:p-5 rounded-xl border" style={{ ...bgSecondary, ...borderStyle }}>
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  {isDark ? <Moon className="w-5 h-5 text-emerald-400" /> : <Sun className="w-5 h-5 text-amber-500" />}
+                <div className="flex items-center gap-3 lg:gap-4">
+                  {isDark ? <Moon className="w-5 h-5 lg:w-6 lg:h-6 text-emerald-400" /> : <Sun className="w-5 h-5 lg:w-6 lg:h-6 text-amber-500" />}
                   <div>
-                    <p className="text-sm font-medium">{isDark ? 'Dark Mode' : 'Light Mode'}</p>
-                    <p className="text-xs" style={textMuted}>{isDark ? 'Easy on the eyes' : 'Bright and clean'}</p>
+                    <p className="text-sm lg:text-base font-medium">{isDark ? 'Dark Mode' : 'Light Mode'}</p>
+                    <p className="text-xs lg:text-sm" style={textMuted}>{isDark ? 'Easy on the eyes' : 'Bright and clean'}</p>
                   </div>
                 </div>
                 <button onClick={toggleTheme} className={`relative w-14 h-8 rounded-full transition-colors ${isDark ? 'bg-emerald-600' : 'bg-amber-400'}`}>
@@ -864,7 +1023,8 @@ export default function TroveApp() {
               </div>
             </div>
             
-            <button onClick={handleSignOut} className="flex items-center gap-2 text-sm text-red-400">
+            {/* Sign out - hide on desktop since it's in sidebar */}
+            <button onClick={handleSignOut} className="lg:hidden flex items-center gap-2 text-sm text-red-400">
               <LogOut className="w-4 h-4" /> Sign Out
             </button>
           </div>
@@ -883,11 +1043,18 @@ export default function TroveApp() {
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 lg:gap-4">
               {albumItems.map(item => (
                 <a key={item.id} href={item.link || '#'} target={item.link ? "_blank" : undefined} rel="noopener noreferrer" className="group text-left" onClick={(e) => !item.link && e.preventDefault()}>
                   <div className="relative aspect-square rounded-2xl overflow-hidden mb-2 transition-transform duration-300 group-hover:scale-[1.02]">
                     <ImageBox src={item.image_url} color={item.image_color} alt={item.title} />
+                    <div className="absolute top-2 right-2 flex gap-1">
+                      {item.notes && (
+                        <div className="p-1.5 rounded-full bg-black/40 backdrop-blur-md">
+                          <FileText className="w-2.5 h-2.5 text-white" />
+                        </div>
+                      )}
+                    </div>
                     {item.link && (
                       <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <div className="p-1.5 rounded-full bg-black/40 backdrop-blur-md">
@@ -896,7 +1063,8 @@ export default function TroveApp() {
                       </div>
                     )}
                   </div>
-                  <h3 className="text-xs font-medium line-clamp-2" style={{ color: 'var(--text-primary)' }}>{item.title}</h3>
+                  <h3 className="text-xs lg:text-sm font-medium line-clamp-2" style={{ color: 'var(--text-primary)' }}>{item.title}</h3>
+                  {item.notes && <p className="text-[10px] lg:text-xs line-clamp-1 mt-0.5" style={{ color: 'var(--text-muted)' }}>{item.notes}</p>}
                 </a>
               ))}
             </div>
@@ -904,9 +1072,9 @@ export default function TroveApp() {
         )}
       </main>
 
-      {/* Bottom Navigation */}
+      {/* Bottom Navigation - mobile only */}
       {!selectedAlbum && (
-        <nav className="fixed bottom-0 left-0 right-0 z-40 border-t backdrop-blur-xl" style={{ ...bgPrimary, ...borderStyle }}>
+        <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 border-t backdrop-blur-xl" style={{ ...bgPrimary, ...borderStyle }}>
           <div className="max-w-lg mx-auto px-4">
             <div className="flex items-center justify-around py-3">
               {user ? (
@@ -938,6 +1106,7 @@ export default function TroveApp() {
           </div>
         </nav>
       )}
+      </div>{/* End of main wrapper lg:pl-64 */}
 
       {/* Auth Modal */}
       <Modal isOpen={showAuthModal} onClose={() => { setShowAuthModal(false); setShowEmailConfirmation(false); setShowForgotPassword(false); setShowPasswordResetSent(false); setAuthError('') }} title={showPasswordResetSent ? 'Check your inbox 📬' : (showForgotPassword ? 'Reset password' : (showEmailConfirmation ? 'Check your inbox 📬' : (isLogin ? 'Welcome back' : 'Create account')))} isDark={isDark}>
@@ -1112,22 +1281,81 @@ export default function TroveApp() {
       </Modal>
 
       {/* Add Item Modal */}
-      <Modal isOpen={showAddItemModal} onClose={() => setShowAddItemModal(false)} title="Add Item" isDark={isDark}>
+      <Modal isOpen={showAddItemModal} onClose={() => { setShowAddItemModal(false); removeItemImage() }} title="Add Item" isDark={isDark}>
         <div className="space-y-5">
-          <input type="text" placeholder="Title" value={newItem.title} onChange={(e) => setNewItem({ ...newItem, title: e.target.value })} className="w-full px-3 py-2.5 rounded-lg border text-sm" style={{ ...bgSecondary, ...borderStyle, color: 'var(--text-primary)' }} />
-          <input type="text" placeholder="Link URL (optional)" value={newItem.link} onChange={(e) => setNewItem({ ...newItem, link: e.target.value })} className="w-full px-3 py-2.5 rounded-lg border text-sm" style={{ ...bgSecondary, ...borderStyle, color: 'var(--text-primary)' }} />
+          <input 
+            type="text" 
+            placeholder="Title" 
+            value={newItem.title} 
+            onChange={(e) => setNewItem({ ...newItem, title: e.target.value })} 
+            className="w-full px-3 py-2.5 rounded-lg border text-sm" 
+            style={{ ...bgSecondary, ...borderStyle, color: 'var(--text-primary)' }} 
+          />
           
+          {/* Item Image Upload */}
           <div>
-            <label className="block text-xs mb-2" style={textMuted}>Color</label>
-            <div className="flex gap-2 flex-wrap">
-              {colorOptions.map(color => (
-                <button key={color} onClick={() => setNewItem({ ...newItem, imageColor: color })} className={`w-6 h-6 rounded-full ${newItem.imageColor === color ? 'ring-2 ring-offset-2' : ''}`} style={{ backgroundColor: color, ringColor: 'var(--text-primary)', ringOffsetColor: 'var(--bg-secondary)' }} />
-              ))}
-            </div>
+            <label className="block text-xs mb-2" style={textMuted}>Image</label>
+            <input
+              ref={itemImageInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleItemImageSelect}
+              className="hidden"
+            />
+            {newItem.imagePreview ? (
+              <div className="relative w-full aspect-video rounded-xl overflow-hidden">
+                <img src={newItem.imagePreview} alt="Item preview" className="w-full h-full object-cover" />
+                <button 
+                  onClick={removeItemImage}
+                  className="absolute top-2 right-2 p-1.5 rounded-full bg-black/60 hover:bg-black/80 transition-colors"
+                >
+                  <X className="w-4 h-4 text-white" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => itemImageInputRef.current?.click()}
+                className="w-full aspect-video rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-2 transition-colors hover:border-emerald-500/50"
+                style={{ borderColor: 'var(--border-color)' }}
+              >
+                <Camera className="w-6 h-6" style={textMuted} />
+                <span className="text-xs" style={textMuted}>Upload image</span>
+              </button>
+            )}
           </div>
           
+          {/* Color picker - only show if no image */}
+          {!newItem.imagePreview && (
+            <div>
+              <label className="block text-xs mb-2" style={textMuted}>Or choose a color</label>
+              <div className="flex gap-2 flex-wrap">
+                {colorOptions.map(color => (
+                  <button key={color} onClick={() => setNewItem({ ...newItem, imageColor: color })} className={`w-6 h-6 rounded-full ${newItem.imageColor === color ? 'ring-2 ring-offset-2' : ''}`} style={{ backgroundColor: color, ringColor: 'var(--text-primary)', ringOffsetColor: 'var(--bg-secondary)' }} />
+                ))}
+              </div>
+            </div>
+          )}
+          
+          <input 
+            type="text" 
+            placeholder="Link URL (optional)" 
+            value={newItem.link} 
+            onChange={(e) => setNewItem({ ...newItem, link: e.target.value })} 
+            className="w-full px-3 py-2.5 rounded-lg border text-sm" 
+            style={{ ...bgSecondary, ...borderStyle, color: 'var(--text-primary)' }} 
+          />
+          
+          <textarea 
+            placeholder="Notes (optional)" 
+            value={newItem.notes} 
+            onChange={(e) => setNewItem({ ...newItem, notes: e.target.value })} 
+            rows={3}
+            className="w-full px-3 py-2.5 rounded-lg border text-sm resize-none" 
+            style={{ ...bgSecondary, ...borderStyle, color: 'var(--text-primary)' }} 
+          />
+          
           <button onClick={handleAddItem} disabled={saving || !newItem.title.trim()} className="w-full py-3 rounded-lg font-medium text-sm disabled:opacity-50" style={{ backgroundColor: isDark ? '#fff' : '#000', color: isDark ? '#000' : '#fff' }}>
-            {saving ? 'Adding...' : 'Add Item'}
+            {saving ? (uploadingItemImage ? 'Uploading image...' : 'Adding...') : 'Add Item'}
           </button>
         </div>
       </Modal>
