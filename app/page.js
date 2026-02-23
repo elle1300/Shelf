@@ -1520,4 +1520,5 @@ export default function TroveApp() {
       </Modal>
     </div>
   )
+  
 }
