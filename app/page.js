@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase'
 import { 
   Plus, Sparkles, ExternalLink, ArrowLeft, X, Music, BookOpen, Film, 
   Utensils, Dumbbell, Palette, Image, Upload, User, Globe, Lock, 
-  Heart, Search, Home, Compass, LogOut, Edit3, Check, Sun, Moon, Eye, EyeOff, Mail, Camera, Trash2, FileText
+  Heart, Search, Home, Compass, LogOut, Edit3, Check, Sun, Moon, Eye, EyeOff, Mail, Camera, Trash2, FileText, Users, UserPlus, UserCheck, Bookmark, BookmarkCheck
 } from 'lucide-react'
 
 // Trove Logo Component
@@ -141,6 +141,11 @@ export default function TroveApp() {
   const [selectedAlbum, setSelectedAlbum] = useState(null)
   const [albumItems, setAlbumItems] = useState([])
   const [likedAlbums, setLikedAlbums] = useState([])
+  const [savedAlbums, setSavedAlbums] = useState([])
+  const [savedAlbumsData, setSavedAlbumsData] = useState([])
+  const [following, setFollowing] = useState([])
+  const [followingAlbums, setFollowingAlbums] = useState([])
+  const [selectedUserProfile, setSelectedUserProfile] = useState(null)
   
   // UI state
   const [isDark, setIsDark] = useState(true)
@@ -192,10 +197,16 @@ export default function TroveApp() {
         await fetchProfile(session.user.id)
         await fetchMyAlbums(session.user.id)
         await fetchLikes(session.user.id)
+        await fetchSaved(session.user.id)
+        await fetchFollowing(session.user.id)
         setActiveTab('home')
       } else {
         setProfile(null)
         setAlbums([])
+        setSavedAlbums([])
+        setSavedAlbumsData([])
+        setFollowing([])
+        setFollowingAlbums([])
         setActiveTab('discover')
       }
     })
@@ -210,6 +221,8 @@ export default function TroveApp() {
       await fetchProfile(session.user.id)
       await fetchMyAlbums(session.user.id)
       await fetchLikes(session.user.id)
+      await fetchSaved(session.user.id)
+      await fetchFollowing(session.user.id)
       setActiveTab('home')
     }
     setLoading(false)
@@ -254,6 +267,104 @@ export default function TroveApp() {
   const fetchLikes = async (userId) => {
     const { data } = await supabase.from('likes').select('album_id').eq('user_id', userId)
     if (data) setLikedAlbums(data.map(l => l.album_id))
+  }
+
+  const fetchSaved = async (userId) => {
+    try {
+      const { data, error } = await supabase
+        .from('saved_albums')
+        .select('album_id')
+        .eq('user_id', userId)
+      
+      if (error) {
+        console.log('Saved albums table may not exist yet:', error.message)
+        return
+      }
+      
+      if (data) {
+        const savedIds = data.map(s => s.album_id)
+        setSavedAlbums(savedIds)
+        
+        // Fetch the actual album data
+        if (savedIds.length > 0) {
+          const { data: albumsData } = await supabase
+            .from('albums')
+            .select('*, profiles:user_id(id, username, display_name, avatar_color, avatar_url), items(count)')
+            .in('id', savedIds)
+          if (albumsData) setSavedAlbumsData(albumsData)
+        }
+      }
+    } catch (err) {
+      console.log('Error fetching saved:', err)
+    }
+  }
+
+  const fetchFollowing = async (userId) => {
+    try {
+      const { data, error } = await supabase
+        .from('follows')
+        .select('following_id')
+        .eq('follower_id', userId)
+      
+      if (error) {
+        console.log('Follows table may not exist yet:', error.message)
+        return
+      }
+      
+      if (data) {
+        const followingIds = data.map(f => f.following_id)
+        setFollowing(followingIds)
+        // Fetch albums from people we follow
+        if (followingIds.length > 0) {
+          const { data: albums } = await supabase
+            .from('albums')
+            .select('*, profiles:user_id(id, username, display_name, avatar_color, avatar_url), items(count)')
+            .in('user_id', followingIds)
+            .eq('is_public', true)
+            .order('created_at', { ascending: false })
+            .limit(50)
+          if (albums) setFollowingAlbums(albums)
+        }
+      }
+    } catch (err) {
+      console.log('Error fetching following:', err)
+    }
+  }
+
+  const fetchUserProfile = async (userId) => {
+    const { data: profileData } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single()
+    
+    const { data: albumsData } = await supabase
+      .from('albums')
+      .select('*, items(count)')
+      .eq('user_id', userId)
+      .eq('is_public', true)
+      .order('created_at', { ascending: false })
+    
+    // Get follower count
+    const { count: followersCount } = await supabase
+      .from('follows')
+      .select('*', { count: 'exact', head: true })
+      .eq('following_id', userId)
+    
+    // Get following count
+    const { count: followingCount } = await supabase
+      .from('follows')
+      .select('*', { count: 'exact', head: true })
+      .eq('follower_id', userId)
+    
+    if (profileData) {
+      setSelectedUserProfile({
+        ...profileData,
+        albums: albumsData || [],
+        followers_count: followersCount || 0,
+        following_count: followingCount || 0
+      })
+    }
   }
 
   // Auth handlers
@@ -562,6 +673,94 @@ export default function TroveApp() {
     }
   }
 
+  // Save collection handler
+  const handleSave = async (albumId) => {
+    if (!user) {
+      setShowAuthModal(true)
+      return
+    }
+    
+    try {
+      if (savedAlbums.includes(albumId)) {
+        // Unsave
+        await supabase
+          .from('saved_albums')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('album_id', albumId)
+        
+        setSavedAlbums(savedAlbums.filter(id => id !== albumId))
+        setSavedAlbumsData(savedAlbumsData.filter(a => a.id !== albumId))
+      } else {
+        // Save
+        await supabase
+          .from('saved_albums')
+          .insert({ user_id: user.id, album_id: albumId })
+        
+        setSavedAlbums([...savedAlbums, albumId])
+        
+        // Fetch the album data to add to savedAlbumsData
+        const { data: albumData } = await supabase
+          .from('albums')
+          .select('*, profiles:user_id(id, username, display_name, avatar_color, avatar_url), items(count)')
+          .eq('id', albumId)
+          .single()
+        
+        if (albumData) {
+          setSavedAlbumsData([...savedAlbumsData, albumData])
+        }
+      }
+    } catch (err) {
+      console.log('Error saving album:', err)
+    }
+  }
+
+  // Follow handlers
+  const handleFollow = async (userIdToFollow) => {
+    if (!user) {
+      setShowAuthModal(true)
+      return
+    }
+    
+    if (following.includes(userIdToFollow)) {
+      // Unfollow
+      await supabase
+        .from('follows')
+        .delete()
+        .eq('follower_id', user.id)
+        .eq('following_id', userIdToFollow)
+      
+      setFollowing(following.filter(id => id !== userIdToFollow))
+      setFollowingAlbums(followingAlbums.filter(a => a.user_id !== userIdToFollow))
+    } else {
+      // Follow
+      await supabase
+        .from('follows')
+        .insert({ follower_id: user.id, following_id: userIdToFollow })
+      
+      setFollowing([...following, userIdToFollow])
+      
+      // Fetch their public albums
+      const { data: newAlbums } = await supabase
+        .from('albums')
+        .select('*, profiles:user_id(id, username, display_name, avatar_color, avatar_url), items(count)')
+        .eq('user_id', userIdToFollow)
+        .eq('is_public', true)
+      
+      if (newAlbums) {
+        setFollowingAlbums([...newAlbums, ...followingAlbums])
+      }
+    }
+  }
+
+  const openUserProfile = async (userId) => {
+    if (userId === user?.id) {
+      setActiveTab('profile')
+      return
+    }
+    await fetchUserProfile(userId)
+  }
+
   // Edit album handlers
   const openEditAlbumModal = () => {
     if (!selectedAlbum) return
@@ -751,38 +950,46 @@ export default function TroveApp() {
     const isLiked = likedAlbums.includes(album.id)
     
     return (
-      <button
-        onClick={() => {
-          setSelectedAlbum(album)
-          fetchAlbumItems(album.id)
-        }}
-        className="group text-left w-full"
-      >
-        <div className="relative aspect-square rounded-2xl overflow-hidden mb-2 transition-transform duration-300 group-hover:scale-[1.02]">
-          <ImageBox src={album.cover_url} color={album.cover_color} alt={album.name} />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-          
-          <div className="absolute top-2 right-2 flex items-center gap-1.5">
-            {isOwn && (
-              <div className={`p-1 rounded-full backdrop-blur-md ${album.is_public ? 'bg-green-500/20 border border-green-500/30' : 'bg-black/40 border border-white/10'}`}>
-                {album.is_public ? <Globe className="w-2.5 h-2.5 text-green-400" /> : <Lock className="w-2.5 h-2.5 text-white/50" />}
+      <div className="group text-left w-full">
+        <button
+          onClick={() => {
+            setSelectedAlbum(album)
+            fetchAlbumItems(album.id)
+          }}
+          className="w-full text-left"
+        >
+          <div className="relative aspect-square rounded-2xl overflow-hidden mb-2 transition-transform duration-300 group-hover:scale-[1.02]">
+            <ImageBox src={album.cover_url} color={album.cover_color} alt={album.name} />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+            
+            <div className="absolute top-2 right-2 flex items-center gap-1.5">
+              {isOwn && (
+                <div className={`p-1 rounded-full backdrop-blur-md ${album.is_public ? 'bg-green-500/20 border border-green-500/30' : 'bg-black/40 border border-white/10'}`}>
+                  {album.is_public ? <Globe className="w-2.5 h-2.5 text-green-400" /> : <Lock className="w-2.5 h-2.5 text-white/50" />}
+                </div>
+              )}
+              <div className="px-2 py-0.5 rounded-full bg-black/40 backdrop-blur-md text-[10px] text-white/70">{itemCount}</div>
+            </div>
+            
+            {!isOwn && (
+              <div className="absolute bottom-2 right-2 flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/40 backdrop-blur-md">
+                <Heart className={`w-2.5 h-2.5 ${isLiked ? 'fill-red-500 text-red-500' : 'text-white/50'}`} />
+                <span className="text-[10px] text-white/70">{album.likes_count || 0}</span>
               </div>
             )}
-            <div className="px-2 py-0.5 rounded-full bg-black/40 backdrop-blur-md text-[10px] text-white/70">{itemCount}</div>
           </div>
-          
-          {!isOwn && (
-            <div className="absolute bottom-2 right-2 flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/40 backdrop-blur-md">
-              <Heart className={`w-2.5 h-2.5 ${isLiked ? 'fill-red-500 text-red-500' : 'text-white/50'}`} />
-              <span className="text-[10px] text-white/70">{album.likes_count || 0}</span>
-            </div>
-          )}
-        </div>
-        <h3 className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>{album.name}</h3>
+          <h3 className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>{album.name}</h3>
+        </button>
         {showUser && album.profiles && (
-          <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>@{album.profiles.username}</p>
+          <button 
+            onClick={() => openUserProfile(album.profiles.id)}
+            className="text-[10px] hover:text-emerald-400 transition-colors" 
+            style={{ color: 'var(--text-muted)' }}
+          >
+            @{album.profiles.username}
+          </button>
         )}
-      </button>
+      </div>
     )
   }
 
@@ -822,13 +1029,15 @@ export default function TroveApp() {
             <div className="space-y-2">
               {[
                 { id: 'home', icon: Home, label: 'My Collections' },
+                { id: 'saved', icon: Bookmark, label: 'Saved' },
+                { id: 'following', icon: Users, label: 'Following' },
                 { id: 'discover', icon: Compass, label: 'Discover' },
                 { id: 'profile', icon: User, label: 'Profile' },
               ].map(tab => (
                 <button 
                   key={tab.id} 
-                  onClick={() => { setActiveTab(tab.id); setSelectedAlbum(null); setAlbumItems([]) }} 
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${activeTab === tab.id ? 'bg-emerald-500/10 text-emerald-400' : 'hover:bg-white/5'}`}
+                  onClick={() => { setActiveTab(tab.id); setSelectedAlbum(null); setAlbumItems([]); setSelectedUserProfile(null) }} 
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${activeTab === tab.id && !selectedUserProfile ? 'bg-emerald-500/10 text-emerald-400' : 'hover:bg-white/5'}`}
                 >
                   <tab.icon className="w-5 h-5" />
                   <span className="text-sm font-medium">{tab.label}</span>
@@ -937,9 +1146,18 @@ export default function TroveApp() {
             )}
             
             {selectedAlbum && selectedAlbum.user_id !== user?.id && (
-              <button onClick={() => handleLike(selectedAlbum.id)} className={`flex items-center gap-1.5 px-3 py-2 rounded-full border ${likedAlbums.includes(selectedAlbum.id) ? 'bg-red-500/10 border-red-500/30' : ''}`} style={!likedAlbums.includes(selectedAlbum.id) ? { ...bgSecondary, ...borderStyle } : {}}>
-                <Heart className={`w-3.5 h-3.5 ${likedAlbums.includes(selectedAlbum.id) ? 'fill-red-500 text-red-500' : ''}`} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button onClick={() => handleSave(selectedAlbum.id)} className={`flex items-center gap-1.5 px-3 py-2 rounded-full border ${savedAlbums.includes(selectedAlbum.id) ? 'bg-emerald-500/10 border-emerald-500/30' : ''}`} style={!savedAlbums.includes(selectedAlbum.id) ? { ...bgSecondary, ...borderStyle } : {}}>
+                  {savedAlbums.includes(selectedAlbum.id) ? (
+                    <BookmarkCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  ) : (
+                    <Bookmark className="w-3.5 h-3.5" />
+                  )}
+                </button>
+                <button onClick={() => handleLike(selectedAlbum.id)} className={`flex items-center gap-1.5 px-3 py-2 rounded-full border ${likedAlbums.includes(selectedAlbum.id) ? 'bg-red-500/10 border-red-500/30' : ''}`} style={!likedAlbums.includes(selectedAlbum.id) ? { ...bgSecondary, ...borderStyle } : {}}>
+                  <Heart className={`w-3.5 h-3.5 ${likedAlbums.includes(selectedAlbum.id) ? 'fill-red-500 text-red-500' : ''}`} />
+                </button>
+              </div>
             )}
           </div>
         </header>
@@ -973,7 +1191,7 @@ export default function TroveApp() {
         )}
 
         {/* Home Tab - Only for logged in users */}
-        {user && activeTab === 'home' && !selectedAlbum && (
+        {user && activeTab === 'home' && !selectedAlbum && !selectedUserProfile && (
           albums.length === 0 ? (
             <div className="text-center py-20">
               <div className="w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-4" style={bgSecondary}>
@@ -987,6 +1205,121 @@ export default function TroveApp() {
               {albums.map(album => <AlbumCard key={album.id} album={album} isOwn={true} />)}
             </div>
           )
+        )}
+
+        {/* Saved Tab - Only for logged in users */}
+        {user && activeTab === 'saved' && !selectedAlbum && !selectedUserProfile && (
+          <div className="space-y-6">
+            <h2 className="text-xs font-medium uppercase tracking-wider" style={textMuted}>Saved Collections</h2>
+            {savedAlbumsData.length === 0 ? (
+              <div className="text-center py-20">
+                <div className="w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-4" style={bgSecondary}>
+                  <Bookmark className="w-6 h-6" style={textMuted} />
+                </div>
+                <p className="mb-4" style={textMuted}>No saved collections yet</p>
+                <button onClick={() => setActiveTab('discover')} className="text-sm text-emerald-400">Discover collections to save</button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 lg:gap-4">
+                {savedAlbumsData.map(album => (
+                  <AlbumCard key={album.id} album={album} showUser={true} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Following Tab - Only for logged in users */}
+        {user && activeTab === 'following' && !selectedAlbum && !selectedUserProfile && (
+          <div className="space-y-6">
+            <h2 className="text-xs font-medium uppercase tracking-wider" style={textMuted}>From People You Follow</h2>
+            {following.length === 0 ? (
+              <div className="text-center py-20">
+                <div className="w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-4" style={bgSecondary}>
+                  <Users className="w-6 h-6" style={textMuted} />
+                </div>
+                <p className="mb-4" style={textMuted}>You're not following anyone yet</p>
+                <button onClick={() => setActiveTab('discover')} className="text-sm text-emerald-400">Discover people to follow</button>
+              </div>
+            ) : followingAlbums.length === 0 ? (
+              <p className="text-center py-12 text-sm" style={textMuted}>No public collections from people you follow</p>
+            ) : (
+              <div className="grid grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 lg:gap-4">
+                {followingAlbums.map(album => (
+                  <AlbumCard key={album.id} album={album} showUser={true} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* User Profile View */}
+        {selectedUserProfile && !selectedAlbum && (
+          <div className="space-y-6">
+            {/* Back button */}
+            <button 
+              onClick={() => setSelectedUserProfile(null)} 
+              className="flex items-center gap-2 text-sm"
+              style={textMuted}
+            >
+              <ArrowLeft className="w-4 h-4" /> Back
+            </button>
+            
+            {/* Profile Header */}
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-4 lg:gap-6">
+                <Avatar user={selectedUserProfile} size="xl" />
+                <div>
+                  <h2 className="text-xl lg:text-2xl font-medium">{selectedUserProfile.display_name || selectedUserProfile.username}</h2>
+                  <p className="text-sm" style={textMuted}>@{selectedUserProfile.username}</p>
+                  <div className="flex items-center gap-4 mt-2">
+                    <span className="text-sm"><strong>{selectedUserProfile.followers_count}</strong> <span style={textMuted}>followers</span></span>
+                    <span className="text-sm"><strong>{selectedUserProfile.following_count}</strong> <span style={textMuted}>following</span></span>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Follow Button */}
+              {selectedUserProfile.id !== user?.id && (
+                <button 
+                  onClick={() => handleFollow(selectedUserProfile.id)} 
+                  className={`flex items-center gap-2 px-4 py-2 rounded-full font-medium text-sm transition-colors ${
+                    following.includes(selectedUserProfile.id) 
+                      ? 'border border-emerald-500/30 text-emerald-400' 
+                      : ''
+                  }`}
+                  style={following.includes(selectedUserProfile.id) 
+                    ? {} 
+                    : { backgroundColor: isDark ? '#fff' : '#000', color: isDark ? '#000' : '#fff' }
+                  }
+                >
+                  {following.includes(selectedUserProfile.id) ? (
+                    <><UserCheck className="w-4 h-4" /> Following</>
+                  ) : (
+                    <><UserPlus className="w-4 h-4" /> Follow</>
+                  )}
+                </button>
+              )}
+            </div>
+            
+            {selectedUserProfile.bio && (
+              <p className="text-sm lg:text-base" style={{ color: 'var(--text-secondary)' }}>{selectedUserProfile.bio}</p>
+            )}
+            
+            {/* User's Public Collections */}
+            <div className="space-y-4">
+              <h3 className="text-xs font-medium uppercase tracking-wider" style={textMuted}>Public Collections</h3>
+              {selectedUserProfile.albums?.length === 0 ? (
+                <p className="text-center py-8 text-sm" style={textMuted}>No public collections yet</p>
+              ) : (
+                <div className="grid grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 lg:gap-4">
+                  {selectedUserProfile.albums?.map(album => (
+                    <AlbumCard key={album.id} album={album} />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         )}
 
         {/* Profile Tab - Only for logged in users */}
@@ -1073,7 +1406,7 @@ export default function TroveApp() {
       </main>
 
       {/* Bottom Navigation - mobile only */}
-      {!selectedAlbum && (
+      {!selectedAlbum && !selectedUserProfile && (
         <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 border-t backdrop-blur-xl" style={{ ...bgPrimary, ...borderStyle }}>
           <div className="max-w-lg mx-auto px-4">
             <div className="flex items-center justify-around py-3">
@@ -1081,10 +1414,11 @@ export default function TroveApp() {
                 // Logged in navigation
                 [
                   { id: 'home', icon: Home, label: 'Home' },
+                  { id: 'saved', icon: Bookmark, label: 'Saved' },
                   { id: 'discover', icon: Compass, label: 'Discover' },
                   { id: 'profile', icon: User, label: 'Profile' },
                 ].map(tab => (
-                  <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center gap-1 px-6 py-1 rounded-lg transition-colors ${activeTab === tab.id ? '' : 'opacity-40'}`}>
+                  <button key={tab.id} onClick={() => { setActiveTab(tab.id); setSelectedUserProfile(null) }} className={`flex flex-col items-center gap-1 px-3 py-1 rounded-lg transition-colors ${activeTab === tab.id ? '' : 'opacity-40'}`}>
                     <tab.icon className="w-5 h-5" />
                     <span className="text-[10px]">{tab.label}</span>
                   </button>
@@ -1520,5 +1854,4 @@ export default function TroveApp() {
       </Modal>
     </div>
   )
-  
 }
